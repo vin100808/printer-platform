@@ -10,26 +10,26 @@ type SupplierValue = Base & { supplierCode: string; supplierName: string; taxpay
 type LocationValue = Base & { locationCode: string; locationName: string; address: string; contactName: string | null; contactPhone: string | null };
 type ContractValue = Base & { contractNo: string; contractName: string; effectiveDate: string; expiryDate: string; attachmentUrl?: string | null };
 
-const input = "w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100";
-const area = `${input} min-h-24 resize-y`;
+export const input = "w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100";
+export const area = `${input} min-h-24 resize-y`;
 
-function Field({ label, name, defaultValue, required, type = "text", placeholder }: { label: string; name: string; defaultValue?: string | null; required?: boolean; type?: string; placeholder?: string }) {
-  return <label className="block text-sm font-medium text-slate-700"><span className="mb-2 block">{label}{required ? " *" : ""}</span><input className={input} defaultValue={defaultValue ?? ""} name={name} placeholder={placeholder} required={required} type={type} /></label>;
+export function Field({ label, name, defaultValue, required, type = "text", placeholder, step }: { label: string; name: string; defaultValue?: string | null; required?: boolean; type?: string; placeholder?: string; step?: string }) {
+  return <label className="block text-sm font-medium text-slate-700"><span className="mb-2 block">{label}{required ? " *" : ""}</span><input className={input} defaultValue={defaultValue ?? ""} name={name} placeholder={placeholder} required={required} step={step} type={type} /></label>;
 }
 
-function CodeField({ label, placeholder, value }: { label: string; placeholder: string; value?: string }) {
-  return <div className="block text-sm font-medium text-slate-700"><span className="mb-2 block">{label}</span><div className={`${input} bg-slate-50 text-slate-500`}>{value ?? placeholder}</div></div>;
+export function CodeField({ label, placeholder, value }: { label: string; placeholder?: string; value?: string }) {
+  return <div className="block text-sm font-medium text-slate-700"><span className="mb-2 block">{label}</span><div className={`${input} bg-slate-50 text-slate-500`}>{value ?? placeholder ?? ""}</div></div>;
 }
 
-function SelectStatus({ value = "active" }: { value?: "active" | "inactive" }) {
+export function SelectStatus({ value = "active" }: { value?: "active" | "inactive" }) {
   return <label className="block text-sm font-medium text-slate-700"><span className="mb-2 block">状态 *</span><select className={input} defaultValue={value} name="status"><option value="active">启用</option><option value="inactive">停用</option></select></label>;
 }
 
-function Footer({ state, cancelHref, pending }: { state: FormState; cancelHref: string; pending: boolean }) {
+export function Footer({ state, cancelHref, pending }: { state: FormState; cancelHref: string; pending: boolean }) {
   return <div className="col-span-full mt-2 flex items-center justify-between border-t border-slate-200 pt-5"><div>{state.error ? <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{state.error}</p> : null}</div><div className="flex gap-3"><a className="rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700" href={cancelHref}>取消</a><button className="rounded-xl bg-slate-950 px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-50" disabled={pending} type="submit">{pending ? "保存中…" : "保存"}</button></div></div>;
 }
 
-function FormShell({ action, cancelHref, children }: { action: Action; cancelHref: string; children: React.ReactNode }) {
+export function FormShell({ action, cancelHref, children }: { action: Action; cancelHref: string; children: React.ReactNode }) {
   const [state, formAction, pending] = useActionState(action, {});
   return <form action={formAction} className="mt-6 grid gap-5 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm md:grid-cols-2">{children}<Footer cancelHref={cancelHref} pending={pending} state={state} /></form>;
 }

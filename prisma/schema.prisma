@@ -78,6 +78,7 @@ model Customer {
   remark                     String?
   locations                  Location[]
   customerFrameworkContracts CustomerFrameworkContract[]
+  customerPackages           CustomerPackage[]
   createdAt                  DateTime                    @default(now()) @map("created_at")
   updatedAt                  DateTime                    @updatedAt @map("updated_at")
 
@@ -101,6 +102,7 @@ model Supplier {
   status                   RecordStatus                @default(active)
   remark                   String?
   contracts                SupplierFrameworkContract[]
+  supplierPackages         SupplierPackage[]
   createdAt                DateTime                    @default(now()) @map("created_at")
   updatedAt                DateTime                    @updatedAt @map("updated_at")
 
@@ -164,4 +166,67 @@ model SupplierFrameworkContract {
   @@index([contractNo])
   @@index([status])
   @@map("supplier_framework_contracts")
+}
+
+model MachineModel {
+  id              String            @id @default(cuid())
+  brand           String
+  modelName       String            @map("model_name")
+  deviceType      DeviceType        @map("device_type")
+  status          RecordStatus      @default(active)
+  remark          String?
+  customerPackages CustomerPackage[]
+  supplierPackages SupplierPackage[]
+  createdAt       DateTime          @default(now()) @map("created_at")
+  updatedAt       DateTime          @updatedAt @map("updated_at")
+
+  @@unique([brand, modelName])
+  @@index([status])
+  @@map("machine_models")
+}
+
+model CustomerPackage {
+  id                      String        @id @default(cuid())
+  packageCode             String        @map("package_code")
+  packageName             String        @map("package_name")
+  monthlyRent             Decimal       @map("monthly_rent") @db.Decimal(10, 2)
+  monthlyFreeBwEquivalent Decimal       @map("monthly_free_bw_equivalent") @db.Decimal(12, 2)
+  overageRateBwEquivalent Decimal       @map("overage_rate_bw_equivalent") @db.Decimal(10, 4)
+  customerId              String?       @map("customer_id")
+  customer                Customer?     @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  version                 Int           @default(1)
+  effectiveFrom           DateTime      @map("effective_from") @db.Date
+  status                  RecordStatus  @default(active)
+  remark                  String?
+  machineModels           MachineModel[]
+  createdAt               DateTime      @default(now()) @map("created_at")
+  updatedAt               DateTime      @updatedAt @map("updated_at")
+
+  @@unique([packageCode, version])
+  @@index([customerId])
+  @@index([status])
+  @@map("customer_packages")
+}
+
+model SupplierPackage {
+  id                      String        @id @default(cuid())
+  packageCode             String        @map("package_code")
+  packageName             String        @map("package_name")
+  monthlyRent             Decimal       @map("monthly_rent") @db.Decimal(10, 2)
+  monthlyFreeBwEquivalent Decimal       @map("monthly_free_bw_equivalent") @db.Decimal(12, 2)
+  overageRateBwEquivalent Decimal       @map("overage_rate_bw_equivalent") @db.Decimal(10, 4)
+  supplierId              String        @map("supplier_id")
+  supplier                Supplier      @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  version                 Int           @default(1)
+  effectiveFrom           DateTime      @map("effective_from") @db.Date
+  status                  RecordStatus  @default(active)
+  remark                  String?
+  machineModels           MachineModel[]
+  createdAt               DateTime      @default(now()) @map("created_at")
+  updatedAt               DateTime      @updatedAt @map("updated_at")
+
+  @@unique([packageCode, version])
+  @@index([supplierId])
+  @@index([status])
+  @@map("supplier_packages")
 }

@@ -1,8 +1,8 @@
 # 打印机租赁运营平台 Web V1
 
-当前完成阶段：**TASK 02｜客户、供应商、地点、合同**。
+当前完成阶段：**TASK 03｜MachineModel 与 Package**。
 
-本仓库是一个基于 Next.js、TypeScript、PostgreSQL 和 Prisma 的单体 Web 应用。当前包含管理员登录、客户、供应商、Location、客户框架合同、供应商框架合同和合同附件；订单、Printer 等后续业务模块尚未开发。
+本仓库是一个基于 Next.js、TypeScript、PostgreSQL 和 Prisma 的单体 Web 应用。当前包含管理员登录、客户、供应商、Location、客户框架合同、供应商框架合同和合同附件、机型管理、客户套餐与供应商套餐（含版本历史）；订单、Printer 等后续业务模块尚未开发。
 
 ## 技术栈
 

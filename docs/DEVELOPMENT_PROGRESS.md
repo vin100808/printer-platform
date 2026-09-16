@@ -52,4 +52,23 @@
 - 编码取已有最大数字序号 + 1，已删除记录使用过的编码不复用；并发新增冲突时自动重新取号重试，唯一索引兜底。
 - 编码规则已同步至开发任务说明 TASK 02 的 Customer / Supplier 章节。
 
-下一阶段：等待明确指令后执行 TASK 03。
+## TASK 03｜MachineModel 与 Package
+
+状态：已完成
+
+完成内容：
+
+- MachineModel 数据模型与列表、新增、编辑、启停页面；黑白 / 彩色类型使用 TASK 01 预留的 DeviceType 枚举。
+- CustomerPackage（customerId 为空即标准套餐）与 SupplierPackage（必须归属供应商）数据模型与页面。
+- 套餐与 MachineModel 多对多关联，表单支持多选配置适配机型。
+- 金额与额度字段全部使用 Decimal（月租 DECIMAL(10,2)、免费额度 DECIMAL(12,2)、超印单价 DECIMAL(10,4)）。
+- 版本历史：`(packageCode, version)` 唯一约束；价格创建后不可修改，重新议价通过「新建版本」复制生成新版本，历史版本保留；详情页提供版本历史视图。
+- 客户 / 供应商存在套餐时禁止删除（Restrict 外键 + 列表页错误提示）。
+- 增加 catalog 校验（价格必填、非负、小数位限制、生效日期必填）与单元测试。
+
+范围说明：
+
+- 未创建 CustomerOrder、SupplierOrder、Printer 或 MeterReading。
+- 未实现 TASK 04 及之后的业务功能；套餐尚未被订单引用，删除套餐暂不校验引用。
+
+下一阶段：等待人工验收后执行 TASK 04。

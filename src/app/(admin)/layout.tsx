@@ -16,14 +16,14 @@ export default async function AdminLayout({ children }: Readonly<{ children: Rea
           </span>
         </Link>
         <nav className="mt-10 space-y-1">
-          {[{ href: "/dashboard", label: "工作台" }, { href: "/customers", label: "客户管理" }, { href: "/suppliers", label: "供应商管理" }, { href: "/customer-contracts", label: "客户合同" }, { href: "/supplier-contracts", label: "供应商合同" }].map((item) => (
+          {[{ href: "/dashboard", label: "工作台" }, { href: "/customers", label: "客户管理" }, { href: "/suppliers", label: "供应商管理" }, { href: "/customer-contracts", label: "客户合同" }, { href: "/supplier-contracts", label: "供应商合同" }, { href: "/machine-models", label: "机型管理" }, { href: "/customer-packages", label: "客户套餐" }, { href: "/supplier-packages", label: "供应商套餐" }].map((item) => (
             <Link className="block rounded-xl px-4 py-3 text-sm font-medium text-slate-300 transition hover:bg-white/10 hover:text-white" href={item.href} key={item.href}>{item.label}</Link>
           ))}
         </nav>
         <p className="absolute bottom-6 left-5 right-5 rounded-xl border border-slate-800 px-4 py-3 text-xs leading-5 text-slate-400">
-          TASK 02 基础主数据
+          TASK 03 机型与套餐
           <br />
-          客户、供应商、地点与合同
+          MachineModel 与 Package 管理
         </p>
       </aside>
       <div className="lg:pl-64">

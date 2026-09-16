@@ -86,7 +86,14 @@ export async function updateCustomer(id: string, _: FormState, formData: FormDat
 
 export async function deleteCustomer(id: string) {
   await requireAdmin();
-  await prisma.customer.delete({ where: { id } });
+  try {
+    await prisma.customer.delete({ where: { id } });
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2003") {
+      redirect(`/customers?error=${encodeURIComponent("该客户存在专属套餐，请先处理其客户套餐后再删除客户。")}`);
+    }
+    throw error;
+  }
   revalidatePath("/customers");
   redirect("/customers");
 }
@@ -128,7 +135,14 @@ export async function updateSupplier(id: string, _: FormState, formData: FormDat
 export async function deleteSupplier(id: string) {
   await requireAdmin();
   const attachments = await prisma.supplierFrameworkContract.findMany({ where: { supplierId: id }, select: { attachmentUrl: true } });
-  await prisma.supplier.delete({ where: { id } });
+  try {
+    await prisma.supplier.delete({ where: { id } });
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2003") {
+      redirect(`/suppliers?error=${encodeURIComponent("该供应商存在采购套餐，请先处理其供应商套餐后再删除供应商。")}`);
+    }
+    throw error;
+  }
   await Promise.all(attachments.map((item) => deleteAttachment(item.attachmentUrl)));
   revalidatePath("/suppliers");
   redirect("/suppliers");
