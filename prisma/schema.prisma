@@ -61,3 +61,107 @@ model AdminSession {
   @@index([expiresAt])
   @@map("admin_sessions")
 }
+
+model Customer {
+  id                         String                      @id @default(cuid())
+  customerCode               String                      @unique @map("customer_code")
+  customerName               String                      @map("customer_name")
+  customerType               CustomerType                @map("customer_type")
+  taxpayerIdentificationNo   String?                     @map("taxpayer_identification_no")
+  registeredAddress          String?                     @map("registered_address")
+  bankName                   String?                     @map("bank_name")
+  bankAccountName            String?                     @map("bank_account_name")
+  bankAccountNo              String?                     @map("bank_account_no")
+  contactName                String?                     @map("contact_name")
+  contactPhone               String?                     @map("contact_phone")
+  status                     RecordStatus                @default(active)
+  remark                     String?
+  locations                  Location[]
+  customerFrameworkContracts CustomerFrameworkContract[]
+  createdAt                  DateTime                    @default(now()) @map("created_at")
+  updatedAt                  DateTime                    @updatedAt @map("updated_at")
+
+  @@index([customerName])
+  @@index([status])
+  @@map("customers")
+}
+
+model Supplier {
+  id                       String                      @id @default(cuid())
+  supplierCode             String                      @unique @map("supplier_code")
+  supplierName             String                      @map("supplier_name")
+  taxpayerIdentificationNo String?                     @map("taxpayer_identification_no")
+  registeredAddress        String?                     @map("registered_address")
+  bankName                 String?                     @map("bank_name")
+  bankAccountName          String?                     @map("bank_account_name")
+  bankAccountNo            String?                     @map("bank_account_no")
+  contactName              String?                     @map("contact_name")
+  contactPhone             String?                     @map("contact_phone")
+  serviceArea              String?                     @map("service_area")
+  status                   RecordStatus                @default(active)
+  remark                   String?
+  contracts                SupplierFrameworkContract[]
+  createdAt                DateTime                    @default(now()) @map("created_at")
+  updatedAt                DateTime                    @updatedAt @map("updated_at")
+
+  @@index([supplierName])
+  @@index([status])
+  @@map("suppliers")
+}
+
+model Location {
+  id           String       @id @default(cuid())
+  customerId   String       @map("customer_id")
+  locationCode String       @map("location_code")
+  locationName String       @map("location_name")
+  address      String
+  contactName  String?      @map("contact_name")
+  contactPhone String?      @map("contact_phone")
+  status       RecordStatus @default(active)
+  remark       String?
+  customer     Customer     @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  createdAt    DateTime     @default(now()) @map("created_at")
+  updatedAt    DateTime     @updatedAt @map("updated_at")
+
+  @@unique([customerId, locationCode])
+  @@index([customerId, status])
+  @@map("locations")
+}
+
+model CustomerFrameworkContract {
+  id            String       @id @default(cuid())
+  contractNo    String       @map("contract_no")
+  contractName  String       @map("contract_name")
+  effectiveDate DateTime     @map("effective_date") @db.Date
+  expiryDate    DateTime?    @map("expiry_date") @db.Date
+  status        RecordStatus @default(active)
+  attachmentUrl String?      @map("attachment_url")
+  remark        String?
+  customers     Customer[]
+  createdAt     DateTime     @default(now()) @map("created_at")
+  updatedAt     DateTime     @updatedAt @map("updated_at")
+
+  @@index([contractNo])
+  @@index([status])
+  @@map("customer_framework_contracts")
+}
+
+model SupplierFrameworkContract {
+  id            String       @id @default(cuid())
+  supplierId    String       @map("supplier_id")
+  contractNo    String       @map("contract_no")
+  contractName  String       @map("contract_name")
+  effectiveDate DateTime     @map("effective_date") @db.Date
+  expiryDate    DateTime?    @map("expiry_date") @db.Date
+  status        RecordStatus @default(active)
+  attachmentUrl String?      @map("attachment_url")
+  remark        String?
+  supplier      Supplier     @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  createdAt     DateTime     @default(now()) @map("created_at")
+  updatedAt     DateTime     @updatedAt @map("updated_at")
+
+  @@index([supplierId])
+  @@index([contractNo])
+  @@index([status])
+  @@map("supplier_framework_contracts")
+}

@@ -21,4 +21,23 @@
 - 未实现 TASK 02 及之后的任何业务页面或流程。
 - 对象存储将在首次出现附件功能的后续任务中接入。
 
-下一阶段：等待明确指令后执行 TASK 02。
+## TASK 02｜客户、供应商、地点、合同
+
+状态：已完成
+
+完成内容：
+
+- Customer、Supplier、Location 数据模型与 CRUD 页面。
+- CustomerFrameworkContract 多对多关联 Customer。
+- SupplierFrameworkContract 归属 Supplier。
+- 客户与供应商详情页展示公司、银行、联系人、地点和合同资料。
+- 合同附件使用 S3 兼容对象存储，本地由持久化 MinIO 提供。
+- 附件支持上传、替换、打开，并在合同删除时同步清理。
+- 增加服务端认证、输入校验、唯一性约束和日期有效性校验。
+
+范围说明：
+
+- 未创建 MachineModel、CustomerPackage 或 SupplierPackage。
+- 未实现 TASK 03 及之后的业务功能。
+
+下一阶段：等待明确指令后执行 TASK 03。

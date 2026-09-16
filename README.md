@@ -1,14 +1,15 @@
 # 打印机租赁运营平台 Web V1
 
-当前完成阶段：**TASK 01｜初始化项目与数据库骨架**。
+当前完成阶段：**TASK 02｜客户、供应商、地点、合同**。
 
-本仓库是一个基于 Next.js、TypeScript、PostgreSQL 和 Prisma 的单体 Web 应用。当前只包含管理员登录、后台基础布局、数据库基础枚举及本地开发基础设施；客户、供应商、订单、Printer 等业务模块尚未开发。
+本仓库是一个基于 Next.js、TypeScript、PostgreSQL 和 Prisma 的单体 Web 应用。当前包含管理员登录、客户、供应商、Location、客户框架合同、供应商框架合同和合同附件；订单、Printer 等后续业务模块尚未开发。
 
 ## 技术栈
 
 - Node.js 22 LTS
 - Next.js 16 / React 19 / TypeScript
 - PostgreSQL 17（通过 Docker Compose / OrbStack 运行）
+- MinIO（本地 S3 兼容对象存储，用于合同附件）
 - Prisma ORM
 - Tailwind CSS
 - Vitest
@@ -27,8 +28,8 @@ npm install
 # 3. 创建本地环境变量
 cp .env.example .env
 
-# 4. 启动 PostgreSQL
-docker compose up -d postgres
+# 4. 启动 PostgreSQL 与对象存储
+docker compose up -d postgres minio
 
 # 5. 执行数据库 Migration
 npm run db:migrate:deploy
@@ -47,8 +48,8 @@ npm run dev
 ## 日常启动与停止
 
 ```bash
-# 启动数据库
-docker compose up -d postgres
+# 启动数据库与对象存储
+docker compose up -d postgres minio
 
 # 启动 Web
 npm run dev
@@ -57,7 +58,7 @@ npm run dev
 docker compose down
 ```
 
-数据库数据保存在命名 Volume `printer-platform-postgres-data` 中。执行普通的 `docker compose down` 或重建容器不会丢失数据。只有明确执行 `docker compose down -v` 或手动删除该 Volume 才会删除数据。
+数据库数据保存在 `printer-platform-postgres-data`，附件保存在 `printer-platform-minio-data`。执行普通的 `docker compose down` 或重建容器不会丢失数据。只有明确执行 `docker compose down -v` 或手动删除对应 Volume 才会删除数据。
 
 ## 常用命令
 
@@ -90,7 +91,7 @@ npm run db:studio          # 打开 Prisma Studio
 npm run db:migrate:deploy
 ```
 
-TASK 01 不引入对象存储，因为本阶段没有附件或照片功能；该能力应在对应业务任务实施时接入。
+本地 MinIO API 地址为 <http://localhost:9000>，管理控制台为 <http://localhost:9001>。应用通过标准 S3 接口访问对象存储，后续部署可改用云 S3 服务。
 
 ## 目录结构
 
