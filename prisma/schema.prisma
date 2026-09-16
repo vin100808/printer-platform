@@ -79,6 +79,7 @@ model Customer {
   locations                  Location[]
   customerFrameworkContracts CustomerFrameworkContract[]
   customerPackages           CustomerPackage[]
+  customerOrders             CustomerOrder[]
   createdAt                  DateTime                    @default(now()) @map("created_at")
   updatedAt                  DateTime                    @updatedAt @map("updated_at")
 
@@ -103,6 +104,7 @@ model Supplier {
   remark                   String?
   contracts                SupplierFrameworkContract[]
   supplierPackages         SupplierPackage[]
+  supplierOrders           SupplierOrder[]
   createdAt                DateTime                    @default(now()) @map("created_at")
   updatedAt                DateTime                    @updatedAt @map("updated_at")
 
@@ -122,6 +124,7 @@ model Location {
   status       RecordStatus @default(active)
   remark       String?
   customer     Customer     @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  customerOrders CustomerOrder[]
   createdAt    DateTime     @default(now()) @map("created_at")
   updatedAt    DateTime     @updatedAt @map("updated_at")
 
@@ -140,6 +143,7 @@ model CustomerFrameworkContract {
   attachmentUrl String?      @map("attachment_url")
   remark        String?
   customers     Customer[]
+  customerOrders CustomerOrder[]
   createdAt     DateTime     @default(now()) @map("created_at")
   updatedAt     DateTime     @updatedAt @map("updated_at")
 
@@ -159,6 +163,7 @@ model SupplierFrameworkContract {
   attachmentUrl String?      @map("attachment_url")
   remark        String?
   supplier      Supplier     @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  supplierOrders SupplierOrder[]
   createdAt     DateTime     @default(now()) @map("created_at")
   updatedAt     DateTime     @updatedAt @map("updated_at")
 
@@ -199,6 +204,7 @@ model CustomerPackage {
   status                  RecordStatus  @default(active)
   remark                  String?
   machineModels           MachineModel[]
+  customerOrderItems      CustomerOrderItem[]
   createdAt               DateTime      @default(now()) @map("created_at")
   updatedAt               DateTime      @updatedAt @map("updated_at")
 
@@ -222,6 +228,7 @@ model SupplierPackage {
   status                  RecordStatus  @default(active)
   remark                  String?
   machineModels           MachineModel[]
+  supplierOrderItems      SupplierOrderItem[]
   createdAt               DateTime      @default(now()) @map("created_at")
   updatedAt               DateTime      @updatedAt @map("updated_at")
 
@@ -229,4 +236,82 @@ model SupplierPackage {
   @@index([supplierId])
   @@index([status])
   @@map("supplier_packages")
+}
+
+model CustomerOrder {
+  id                 String                  @id @default(cuid())
+  orderNo            String                  @map("order_no")
+  customerId         String                  @map("customer_id")
+  locationId         String                  @map("location_id")
+  customerContractId String                  @map("customer_contract_id")
+  orderDate          DateTime                @map("order_date") @db.Date
+  status             OrderStatus             @default(draft)
+  orderAttachmentUrl String?                 @map("order_attachment_url")
+  remark             String?
+  customer           Customer                @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  location           Location                @relation(fields: [locationId], references: [id], onDelete: Restrict)
+  customerContract   CustomerFrameworkContract @relation(fields: [customerContractId], references: [id], onDelete: Restrict)
+  items              CustomerOrderItem[]
+  createdAt          DateTime                @default(now()) @map("created_at")
+  updatedAt          DateTime                @updatedAt @map("updated_at")
+
+  @@unique([orderNo])
+  @@index([customerId])
+  @@index([status])
+  @@map("customer_orders")
+}
+
+model CustomerOrderItem {
+  id                String          @id @default(cuid())
+  customerOrderId   String          @map("customer_order_id")
+  customerPackageId String          @map("customer_package_id")
+  quantity          Int
+  plannedEntryDate  DateTime?       @map("planned_entry_date") @db.Date
+  remark            String?
+  order             CustomerOrder   @relation(fields: [customerOrderId], references: [id], onDelete: Cascade)
+  customerPackage   CustomerPackage @relation(fields: [customerPackageId], references: [id], onDelete: Restrict)
+  createdAt         DateTime        @default(now()) @map("created_at")
+  updatedAt         DateTime        @updatedAt @map("updated_at")
+
+  @@index([customerOrderId])
+  @@index([customerPackageId])
+  @@map("customer_order_items")
+}
+
+model SupplierOrder {
+  id                 String                  @id @default(cuid())
+  orderNo            String                  @map("order_no")
+  supplierId         String                  @map("supplier_id")
+  supplierContractId String                  @map("supplier_contract_id")
+  orderDate          DateTime                @map("order_date") @db.Date
+  status             OrderStatus             @default(draft)
+  orderAttachmentUrl String?                 @map("order_attachment_url")
+  remark             String?
+  supplier           Supplier                @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  supplierContract   SupplierFrameworkContract @relation(fields: [supplierContractId], references: [id], onDelete: Restrict)
+  items              SupplierOrderItem[]
+  createdAt          DateTime                @default(now()) @map("created_at")
+  updatedAt          DateTime                @updatedAt @map("updated_at")
+
+  @@unique([orderNo])
+  @@index([supplierId])
+  @@index([status])
+  @@map("supplier_orders")
+}
+
+model SupplierOrderItem {
+  id                String          @id @default(cuid())
+  supplierOrderId   String          @map("supplier_order_id")
+  supplierPackageId String          @map("supplier_package_id")
+  quantity          Int
+  plannedEntryDate  DateTime?       @map("planned_entry_date") @db.Date
+  remark            String?
+  order             SupplierOrder   @relation(fields: [supplierOrderId], references: [id], onDelete: Cascade)
+  supplierPackage   SupplierPackage @relation(fields: [supplierPackageId], references: [id], onDelete: Restrict)
+  createdAt         DateTime        @default(now()) @map("created_at")
+  updatedAt         DateTime        @updatedAt @map("updated_at")
+
+  @@index([supplierOrderId])
+  @@index([supplierPackageId])
+  @@map("supplier_order_items")
 }

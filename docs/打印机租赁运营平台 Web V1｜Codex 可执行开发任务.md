@@ -520,6 +520,20 @@ CustomerPackage A
 - createdAt
 - updatedAt
 
+编号规则：
+
+orderNo 不由人工填写。
+
+新增订单（含客户订单与供应商订单）时由系统自动生成。
+
+格式为当天日期 + 当日序号：YYYYMMDD + 01 起递增。
+
+例如 2026 年 9 月 16 日第一张订单为 2026091601，第二张为 2026091602。
+
+客户订单与供应商订单共用同一当日序号序列，单号全局唯一。
+
+已删除订单使用过的编号不再复用。
+
 规则：
 
 一个 CustomerOrder 只属于一个 Location。
@@ -538,6 +552,12 @@ CustomerPackage A
 - quantity
 - plannedEntryDate
 - remark
+
+规则：
+
+plannedEntryDate 必填。
+
+明细创建后可在订单编辑页修改（保存时整体替换）；数量不得低于已部署台数（TASK 05 接入 Printer 后强制校验）。
 
 重要规则：
 
@@ -583,6 +603,12 @@ CustomerOrderItem 与 Printer：
 - quantity
 - plannedEntryDate
 - remark
+
+规则：
+
+plannedEntryDate 必填。
+
+明细创建后可在订单编辑页修改（保存时整体替换）；数量不得低于已部署台数（TASK 05 接入 Printer 后强制校验）。
 
 SupplierOrderItem 与 Printer：
 

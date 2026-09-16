@@ -16,14 +16,14 @@ export default async function AdminLayout({ children }: Readonly<{ children: Rea
           </span>
         </Link>
         <nav className="mt-10 space-y-1">
-          {[{ href: "/dashboard", label: "工作台" }, { href: "/customers", label: "客户管理" }, { href: "/suppliers", label: "供应商管理" }, { href: "/customer-contracts", label: "客户合同" }, { href: "/supplier-contracts", label: "供应商合同" }, { href: "/machine-models", label: "机型管理" }, { href: "/customer-packages", label: "客户套餐" }, { href: "/supplier-packages", label: "供应商套餐" }].map((item) => (
+          {[{ href: "/dashboard", label: "工作台" }, { href: "/customers", label: "客户管理" }, { href: "/suppliers", label: "供应商管理" }, { href: "/customer-contracts", label: "客户合同" }, { href: "/supplier-contracts", label: "供应商合同" }, { href: "/machine-models", label: "机型管理" }, { href: "/customer-packages", label: "客户套餐" }, { href: "/supplier-packages", label: "供应商套餐" }, { href: "/customer-orders", label: "客户订单" }, { href: "/supplier-orders", label: "供应商订单" }].map((item) => (
             <Link className="block rounded-xl px-4 py-3 text-sm font-medium text-slate-300 transition hover:bg-white/10 hover:text-white" href={item.href} key={item.href}>{item.label}</Link>
           ))}
         </nav>
         <p className="absolute bottom-6 left-5 right-5 rounded-xl border border-slate-800 px-4 py-3 text-xs leading-5 text-slate-400">
-          TASK 03 机型与套餐
+          TASK 04 客户订单与供应商订单
           <br />
-          MachineModel 与 Package 管理
+          CustomerOrder / SupplierOrder
         </p>
       </aside>
       <div className="lg:pl-64">
