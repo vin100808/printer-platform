@@ -23,6 +23,9 @@ export const customerSchema = z.object({
   remark: optionalText,
 });
 
+// 新增/编辑客户表单不携带 customerCode：新增时由服务端自动生成，编辑时编码不可修改。
+export const customerInputSchema = customerSchema.omit({ customerCode: true });
+
 export const supplierSchema = z.object({
   supplierCode: requiredText("供应商编码", 50),
   supplierName: requiredText("供应商名称"),
@@ -37,6 +40,9 @@ export const supplierSchema = z.object({
   status: z.enum(["active", "inactive"]),
   remark: optionalText,
 });
+
+// 新增/编辑供应商表单不携带 supplierCode：新增时由服务端自动生成，编辑时编码不可修改。
+export const supplierInputSchema = supplierSchema.omit({ supplierCode: true });
 
 export const locationSchema = z.object({
   locationCode: requiredText("地点编码", 50),

@@ -4,12 +4,13 @@ import { Prisma } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireAdmin } from "@/lib/auth";
+import { nextCode } from "@/lib/codes";
 import {
   contractSchema,
-  customerSchema,
+  customerInputSchema,
   firstError,
   locationSchema,
-  supplierSchema,
+  supplierInputSchema,
   values,
 } from "@/lib/master-data";
 import { deleteAttachment, uploadContractAttachment } from "@/lib/object-storage";
@@ -17,10 +18,28 @@ import { prisma } from "@/lib/prisma";
 
 export type FormState = { error?: string };
 
-const customerKeys = ["customerCode", "customerName", "customerType", "taxpayerIdentificationNo", "registeredAddress", "bankName", "bankAccountName", "bankAccountNo", "contactName", "contactPhone", "status", "remark"];
-const supplierKeys = ["supplierCode", "supplierName", "taxpayerIdentificationNo", "registeredAddress", "bankName", "bankAccountName", "bankAccountNo", "contactName", "contactPhone", "serviceArea", "status", "remark"];
+const customerKeys = ["customerName", "customerType", "taxpayerIdentificationNo", "registeredAddress", "bankName", "bankAccountName", "bankAccountNo", "contactName", "contactPhone", "status", "remark"];
+const supplierKeys = ["supplierName", "taxpayerIdentificationNo", "registeredAddress", "bankName", "bankAccountName", "bankAccountNo", "contactName", "contactPhone", "serviceArea", "status", "remark"];
 const locationKeys = ["locationCode", "locationName", "address", "contactName", "contactPhone", "status", "remark"];
 const contractKeys = ["contractNo", "contractName", "effectiveDate", "expiryDate", "status", "remark"];
+
+function isRedirect(error: unknown) {
+  return (error as { digest?: string }).digest?.startsWith("NEXT_REDIRECT") ?? false;
+}
+
+function isUniqueConflict(error: unknown) {
+  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
+}
+
+async function nextCustomerCode() {
+  const rows = await prisma.customer.findMany({ select: { customerCode: true } });
+  return nextCode("C", rows.map((row) => row.customerCode));
+}
+
+async function nextSupplierCode() {
+  const rows = await prisma.supplier.findMany({ select: { supplierCode: true } });
+  return nextCode("S", rows.map((row) => row.supplierCode));
+}
 
 function databaseError(error: unknown) {
   if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") return "编码已存在，请使用其他编码。";
@@ -33,21 +52,26 @@ function contractError(error: unknown) {
 
 export async function createCustomer(_: FormState, formData: FormData): Promise<FormState> {
   await requireAdmin();
-  const parsed = customerSchema.safeParse(values(formData, customerKeys));
+  const parsed = customerInputSchema.safeParse(values(formData, customerKeys));
   if (!parsed.success) return { error: firstError(parsed.error) };
-  try {
-    const item = await prisma.customer.create({ data: parsed.data });
-    revalidatePath("/customers");
-    redirect(`/customers/${item.id}`);
-  } catch (error) {
-    if ((error as { digest?: string }).digest?.startsWith("NEXT_REDIRECT")) throw error;
-    return { error: databaseError(error) };
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      const item = await prisma.customer.create({ data: { ...parsed.data, customerCode: await nextCustomerCode() } });
+      revalidatePath("/customers");
+      redirect(`/customers/${item.id}`);
+    } catch (error) {
+      if (isRedirect(error)) throw error;
+      // 并发新增撞唯一编码时，按最新最大编码重新取号重试。
+      if (isUniqueConflict(error) && attempt < 2) continue;
+      return { error: databaseError(error) };
+    }
   }
+  return { error: "保存失败，请稍后重试。" };
 }
 
 export async function updateCustomer(id: string, _: FormState, formData: FormData): Promise<FormState> {
   await requireAdmin();
-  const parsed = customerSchema.safeParse(values(formData, customerKeys));
+  const parsed = customerInputSchema.safeParse(values(formData, customerKeys));
   if (!parsed.success) return { error: firstError(parsed.error) };
   try {
     await prisma.customer.update({ where: { id }, data: parsed.data });
@@ -69,21 +93,26 @@ export async function deleteCustomer(id: string) {
 
 export async function createSupplier(_: FormState, formData: FormData): Promise<FormState> {
   await requireAdmin();
-  const parsed = supplierSchema.safeParse(values(formData, supplierKeys));
+  const parsed = supplierInputSchema.safeParse(values(formData, supplierKeys));
   if (!parsed.success) return { error: firstError(parsed.error) };
-  try {
-    const item = await prisma.supplier.create({ data: parsed.data });
-    revalidatePath("/suppliers");
-    redirect(`/suppliers/${item.id}`);
-  } catch (error) {
-    if ((error as { digest?: string }).digest?.startsWith("NEXT_REDIRECT")) throw error;
-    return { error: databaseError(error) };
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      const item = await prisma.supplier.create({ data: { ...parsed.data, supplierCode: await nextSupplierCode() } });
+      revalidatePath("/suppliers");
+      redirect(`/suppliers/${item.id}`);
+    } catch (error) {
+      if (isRedirect(error)) throw error;
+      // 并发新增撞唯一编码时，按最新最大编码重新取号重试。
+      if (isUniqueConflict(error) && attempt < 2) continue;
+      return { error: databaseError(error) };
+    }
   }
+  return { error: "保存失败，请稍后重试。" };
 }
 
 export async function updateSupplier(id: string, _: FormState, formData: FormData): Promise<FormState> {
   await requireAdmin();
-  const parsed = supplierSchema.safeParse(values(formData, supplierKeys));
+  const parsed = supplierInputSchema.safeParse(values(formData, supplierKeys));
   if (!parsed.success) return { error: firstError(parsed.error) };
   try {
     await prisma.supplier.update({ where: { id }, data: parsed.data });

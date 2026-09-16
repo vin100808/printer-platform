@@ -17,6 +17,10 @@ function Field({ label, name, defaultValue, required, type = "text", placeholder
   return <label className="block text-sm font-medium text-slate-700"><span className="mb-2 block">{label}{required ? " *" : ""}</span><input className={input} defaultValue={defaultValue ?? ""} name={name} placeholder={placeholder} required={required} type={type} /></label>;
 }
 
+function CodeField({ label, placeholder, value }: { label: string; placeholder: string; value?: string }) {
+  return <div className="block text-sm font-medium text-slate-700"><span className="mb-2 block">{label}</span><div className={`${input} bg-slate-50 text-slate-500`}>{value ?? placeholder}</div></div>;
+}
+
 function SelectStatus({ value = "active" }: { value?: "active" | "inactive" }) {
   return <label className="block text-sm font-medium text-slate-700"><span className="mb-2 block">状态 *</span><select className={input} defaultValue={value} name="status"><option value="active">启用</option><option value="inactive">停用</option></select></label>;
 }
@@ -32,7 +36,7 @@ function FormShell({ action, cancelHref, children }: { action: Action; cancelHre
 
 export function CustomerForm({ action, value, cancelHref }: { action: Action; value?: CustomerValue; cancelHref: string }) {
   return <FormShell action={action} cancelHref={cancelHref}>
-    <Field defaultValue={value?.customerCode} label="客户编码" name="customerCode" required /><Field defaultValue={value?.customerName} label="客户名称" name="customerName" required />
+    <CodeField label="客户编码" placeholder="保存后系统自动生成（C0001 起）" value={value?.customerCode} /><Field defaultValue={value?.customerName} label="客户名称" name="customerName" required />
     <label className="block text-sm font-medium text-slate-700"><span className="mb-2 block">客户类型 *</span><select className={input} defaultValue={value?.customerType ?? "external"} name="customerType"><option value="external">外部客户</option><option value="internal">内部客户</option></select></label><SelectStatus value={value?.status} />
     <Field defaultValue={value?.taxpayerIdentificationNo} label="纳税人识别号" name="taxpayerIdentificationNo" /><Field defaultValue={value?.registeredAddress} label="公司注册地址" name="registeredAddress" />
     <Field defaultValue={value?.bankName} label="开户银行" name="bankName" /><Field defaultValue={value?.bankAccountName} label="银行账户名称" name="bankAccountName" /><Field defaultValue={value?.bankAccountNo} label="银行账号" name="bankAccountNo" />
@@ -43,7 +47,7 @@ export function CustomerForm({ action, value, cancelHref }: { action: Action; va
 
 export function SupplierForm({ action, value, cancelHref }: { action: Action; value?: SupplierValue; cancelHref: string }) {
   return <FormShell action={action} cancelHref={cancelHref}>
-    <Field defaultValue={value?.supplierCode} label="供应商编码" name="supplierCode" required /><Field defaultValue={value?.supplierName} label="供应商名称" name="supplierName" required /><SelectStatus value={value?.status} />
+    <CodeField label="供应商编码" placeholder="保存后系统自动生成（S0001 起）" value={value?.supplierCode} /><Field defaultValue={value?.supplierName} label="供应商名称" name="supplierName" required /><SelectStatus value={value?.status} />
     <Field defaultValue={value?.serviceArea} label="服务区域" name="serviceArea" /><Field defaultValue={value?.taxpayerIdentificationNo} label="纳税人识别号" name="taxpayerIdentificationNo" /><Field defaultValue={value?.registeredAddress} label="注册地址" name="registeredAddress" />
     <Field defaultValue={value?.bankName} label="开户银行" name="bankName" /><Field defaultValue={value?.bankAccountName} label="银行账户名称" name="bankAccountName" /><Field defaultValue={value?.bankAccountNo} label="银行账号" name="bankAccountNo" />
     <Field defaultValue={value?.contactName} label="联系人" name="contactName" /><Field defaultValue={value?.contactPhone} label="联系电话" name="contactPhone" />
