@@ -1,0 +1,41 @@
+# dependencies
+/node_modules
+
+# next.js
+/.next/
+/out/
+
+# production
+/build
+
+# local environment and secrets (keep only the example committed)
+.env*
+!.env.example
+
+# logs and editors
+*.log
+/logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.DS_Store
+.idea/
+.vscode/
+*.tsbuildinfo
+next-env.d.ts
+
+# local platform state
+.vercel/
+
+# test output
+/coverage
+
+# local database/container data (Compose uses a named external volume)
+/.docker-data/
+/postgres-data/
+/data/postgres/
+
+# Prisma local artifacts
+/prisma/*.db
+/prisma/*.db-journal

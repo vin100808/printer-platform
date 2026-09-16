@@ -1,0 +1,63 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum CustomerType {
+  internal
+  external
+}
+
+enum RecordStatus {
+  active
+  inactive
+}
+
+enum PrinterStatus {
+  draft
+  active
+  replaced
+  removed
+}
+
+enum OrderStatus {
+  draft
+  confirmed
+  completed
+  cancelled
+}
+
+enum DeviceType {
+  black_white
+  color
+}
+
+model AdminUser {
+  id           String         @id @default(cuid())
+  email        String         @unique
+  name         String
+  passwordHash String         @map("password_hash")
+  status       RecordStatus   @default(active)
+  sessions     AdminSession[]
+  createdAt    DateTime       @default(now()) @map("created_at")
+  updatedAt    DateTime       @updatedAt @map("updated_at")
+
+  @@map("admin_users")
+}
+
+model AdminSession {
+  id        String    @id @default(cuid())
+  tokenHash String    @unique @map("token_hash")
+  adminId   String    @map("admin_id")
+  expiresAt DateTime  @map("expires_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+  admin     AdminUser @relation(fields: [adminId], references: [id], onDelete: Cascade)
+
+  @@index([adminId])
+  @@index([expiresAt])
+  @@map("admin_sessions")
+}
