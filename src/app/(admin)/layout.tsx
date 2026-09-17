@@ -21,9 +21,9 @@ export default async function AdminLayout({ children }: Readonly<{ children: Rea
           ))}
         </nav>
         <p className="absolute bottom-6 left-5 right-5 rounded-xl border border-slate-800 px-4 py-3 text-xs leading-5 text-slate-400">
-          TASK 05 打印机核心台账
+          TASK 06 新增、换机、撤机
           <br />
-          Printer 台账
+          Printer 生命周期
         </p>
       </aside>
       <div className="lg:pl-64">

@@ -26,8 +26,38 @@ export function PrinterForm({ action, machineModels, customerItems, supplierItem
   </FormShell>;
 }
 
-export type PrinterEditValue = {
-  printerCode: string;
+export type PrinterReplaceValue = {
+  oldPrinterLabel: string;
+  customerItemLabel: string;
+  machineModelId: string;
+  supplierOrderItemId: string;
+  entryDate: string;
+};
+
+export function PrinterReplaceForm({ action, value, machineModels, supplierItems, cancelHref }: { action: Action; value: PrinterReplaceValue; machineModels: PrinterSelectOption[]; supplierItems: PrinterSelectOption[]; cancelHref: string }) {
+  return <FormShell action={action} cancelHref={cancelHref}>
+    <CodeField label="原打印机" value={value.oldPrinterLabel} /><CodeField label="客户订单明细（沿用）" value={value.customerItemLabel} />
+    <Field label="换机日期" name="replaceDate" required type="date" />
+    <SelectField defaultValue={value.machineModelId} emptyHint="暂无可用机型。" label="新机型" name="machineModelId" options={machineModels} />
+    <Field label="新打印机编码" name="printerCode" placeholder="唯一即可" required />
+    <Field label="新供应商资产编码" name="supplierAssetCode" required />
+    <Field defaultValue="0" label="黑白初始读数" name="initialBwReading" required step="1" type="number" />
+    <Field defaultValue="0" label="彩色初始读数" name="initialColorReading" required step="1" type="number" />
+    <SelectField defaultValue={value.supplierOrderItemId} emptyHint="暂无可用供应商订单明细。" label="供应商订单明细" name="supplierOrderItemId" options={supplierItems} />
+    <p className="col-span-full rounded-xl bg-slate-50 px-4 py-3 text-xs leading-5 text-slate-500">保存后原打印机变为「已换机」并记录退场日期；本机作为新打印机「运行中」进场，原机历史保留可追溯。</p>
+    <label className="col-span-full block text-sm font-medium text-slate-700"><span className="mb-2 block">备注</span><textarea className={area} name="remark" /></label>
+  </FormShell>;
+}
+
+export function PrinterRemoveForm({ action, value, cancelHref }: { action: Action; value: { oldPrinterLabel: string; entryDate: string }; cancelHref: string }) {
+  return <FormShell action={action} cancelHref={cancelHref}>
+    <CodeField label="打印机" value={value.oldPrinterLabel} /><CodeField label="进场日期" value={value.entryDate} />
+    <Field label="撤机日期" name="exitDate" required type="date" />
+    <p className="col-span-full rounded-xl bg-slate-50 px-4 py-3 text-xs leading-5 text-slate-500">保存后打印机变为「已撤机」并保留历史记录，不删除；撤机后不可再换机或编辑。</p>
+  </FormShell>;
+}
+
+export type PrinterEditValue = {  printerCode: string;
   supplierAssetCode: string;
   customerItemLabel: string;
   supplierItemLabel: string;

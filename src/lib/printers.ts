@@ -39,6 +39,23 @@ export const printerSchema = z.object({
 // 订单明细关系定义打印机身份与追溯链，创建后不可改；状态与退场由 TASK 06 生命周期操作管理。
 export const printerUpdateSchema = printerSchema.omit({ customerOrderItemId: true, supplierOrderItemId: true });
 
+// 换机：客户订单明细沿用原打印机；供应商明细默认沿用，供应商变化时可改选其他明细。
+export const printerReplaceSchema = printerUpdateSchema
+  .omit({ entryDate: true })
+  .extend({ replaceDate: dateInput("换机日期"), supplierOrderItemId: requiredId("供应商订单明细") });
+
+export const printerRemoveSchema = z.object({ exitDate: dateInput("撤机日期") });
+
+// 生命周期操作（换机 / 撤机）只允许对运行中的打印机执行。
+export function canChangeLifecycle(status: string) {
+  return status === "active";
+}
+
+/** 日期粒度比较（本地日历日），用于换机 / 撤机日期不得早于进场日期。 */
+export function isBeforeDay(a: Date, b: Date) {
+  return Date.UTC(a.getFullYear(), a.getMonth(), a.getDate()) < Date.UTC(b.getFullYear(), b.getMonth(), b.getDate());
+}
+
 export function newQrToken() {
   return randomBytes(18).toString("base64url");
 }

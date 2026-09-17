@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { deviceTypeLabel, firstError, hasDeploymentCapacity, newQrToken, printerSchema, printerStatusLabel, printerUpdateSchema } from "@/lib/printers";
+import { deviceTypeLabel, firstError, hasDeploymentCapacity, isBeforeDay, canChangeLifecycle, newQrToken, printerRemoveSchema, printerReplaceSchema, printerSchema, printerStatusLabel, printerUpdateSchema } from "@/lib/printers";
 
 const validInput = {
   printerCode: "PRN-001",
@@ -92,5 +92,59 @@ describe("标签完整性", () => {
     expect(Object.keys(printerStatusLabel).sort()).toEqual(["active", "draft", "removed", "replaced"]);
     expect(Object.values(printerStatusLabel)).toContain("运行中");
     expect(Object.keys(deviceTypeLabel).sort()).toEqual(["black_white", "color"]);
+  });
+});
+
+const validReplace = {
+  printerCode: "PRN-002",
+  supplierAssetCode: "SA-9999",
+  machineModelId: "model-2",
+  supplierOrderItemId: "soi-2",
+  replaceDate: "2026-10-01",
+  initialBwReading: "0",
+  initialColorReading: "0",
+  remark: "",
+};
+
+describe("printerReplaceSchema", () => {
+  it("接受合法换机输入", () => {
+    expect(printerReplaceSchema.safeParse(validReplace).success).toBe(true);
+  });
+
+  it("换机需要重新填写编码、机型与供应商明细", () => {
+    for (const key of ["printerCode", "supplierAssetCode", "machineModelId", "supplierOrderItemId"] as const) {
+      const parsed = printerReplaceSchema.safeParse({ ...validReplace, [key]: "" });
+      expect(parsed.success).toBe(false);
+    }
+  });
+
+  it("拒绝缺失换机日期", () => {
+    const parsed = printerReplaceSchema.safeParse({ ...validReplace, replaceDate: "" });
+    expect(parsed.success).toBe(false);
+    if (!parsed.success) expect(firstError(parsed.error)).toBe("请选择换机日期");
+  });
+});
+
+describe("printerRemoveSchema", () => {
+  it("撤机只需要撤机日期", () => {
+    expect(printerRemoveSchema.safeParse({ exitDate: "2026-10-01" }).success).toBe(true);
+    const parsed = printerRemoveSchema.safeParse({ exitDate: "" });
+    expect(parsed.success).toBe(false);
+    if (!parsed.success) expect(firstError(parsed.error)).toBe("请选择撤机日期");
+  });
+});
+
+describe("生命周期守卫", () => {
+  it("只有运行中的打印机可以换机 / 撤机", () => {
+    expect(canChangeLifecycle("active")).toBe(true);
+    expect(canChangeLifecycle("replaced")).toBe(false);
+    expect(canChangeLifecycle("removed")).toBe(false);
+    expect(canChangeLifecycle("draft")).toBe(false);
+  });
+
+  it("isBeforeDay 按日历日比较", () => {
+    expect(isBeforeDay(new Date(2026, 8, 17), new Date(2026, 8, 18))).toBe(true);
+    expect(isBeforeDay(new Date(2026, 8, 18), new Date(2026, 8, 18))).toBe(false);
+    expect(isBeforeDay(new Date(2026, 9, 1), new Date(2026, 8, 18))).toBe(false);
   });
 });
