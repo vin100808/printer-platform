@@ -67,6 +67,31 @@ function attachmentFrom(formData: FormData) {
   return file instanceof File && file.size ? file : null;
 }
 
+type DeployedOldItem = {
+  customerPackageId?: string;
+  supplierPackageId?: string;
+  customerPackage?: { packageName: string };
+  supplierPackage?: { packageName: string };
+  printers: { id: string }[];
+};
+
+// 数量守卫：按套餐汇总已部署台数（运行中打印机），修改后的明细总数量不得低于已部署台数。
+async function verifyDeployedGuard(oldItemsQuery: Promise<DeployedOldItem[]>, submitted: { packageId: string; quantity: number }[]) {
+  const oldItems = await oldItemsQuery;
+  const submittedByPackage = new Map<string, number>();
+  for (const item of submitted) submittedByPackage.set(item.packageId, (submittedByPackage.get(item.packageId) ?? 0) + item.quantity);
+  for (const old of oldItems) {
+    const deployed = old.printers.length;
+    if (!deployed) continue;
+    const packageId = old.customerPackageId ?? old.supplierPackageId ?? "";
+    const packageName = old.customerPackage?.packageName ?? old.supplierPackage?.packageName ?? "";
+    if ((submittedByPackage.get(packageId) ?? 0) < deployed) {
+      return `套餐「${packageName}」已部署 ${deployed} 台，修改后的总数量不能低于已部署台数。`;
+    }
+  }
+  return null;
+}
+
 export async function createCustomerOrder(_: FormState, formData: FormData): Promise<FormState> {
   await requireAdmin();
   const parsed = customerOrderSchema.safeParse(values(formData, customerOrderKeys));
@@ -131,6 +156,14 @@ export async function updateCustomerOrder(id: string, _: FormState, formData: Fo
     where: { id: { in: packageIds }, OR: [{ customerId: null }, { customerId: existing.customerId }] },
   });
   if (applicableCount !== new Set(packageIds).size) return { error: "明细包含不存在或不适用于该客户的套餐。" };
+  const deployedGuard = await verifyDeployedGuard(
+    prisma.customerOrderItem.findMany({
+      where: { customerOrderId: id },
+      select: { customerPackageId: true, customerPackage: { select: { packageName: true } }, printers: { where: { status: "active" }, select: { id: true } } },
+    }),
+    items.items,
+  );
+  if (deployedGuard) return { error: deployedGuard };
 
   let newUrl: string | null = null;
   try {
@@ -159,6 +192,8 @@ export async function updateCustomerOrder(id: string, _: FormState, formData: Fo
 
 export async function deleteCustomerOrder(id: string) {
   await requireAdmin();
+  const printerCount = await prisma.printer.count({ where: { customerOrderItem: { customerOrderId: id } } });
+  if (printerCount > 0) redirect(`/customer-orders/${id}?error=${encodeURIComponent("该订单已有打印机台账记录，无法删除。")}`);
   const item = await prisma.customerOrder.delete({ where: { id } });
   await deleteAttachment(item.orderAttachmentUrl);
   revalidatePath("/customer-orders");
@@ -225,6 +260,14 @@ export async function updateSupplierOrder(id: string, _: FormState, formData: Fo
   const packageIds = items.items.map((item) => item.packageId);
   const applicableCount = await prisma.supplierPackage.count({ where: { id: { in: packageIds }, supplierId: existing.supplierId } });
   if (applicableCount !== new Set(packageIds).size) return { error: "明细包含不存在或不属于该供应商的套餐。" };
+  const deployedGuard = await verifyDeployedGuard(
+    prisma.supplierOrderItem.findMany({
+      where: { supplierOrderId: id },
+      select: { supplierPackageId: true, supplierPackage: { select: { packageName: true } }, printers: { where: { status: "active" }, select: { id: true } } },
+    }),
+    items.items,
+  );
+  if (deployedGuard) return { error: deployedGuard };
 
   let newUrl: string | null = null;
   try {
@@ -253,6 +296,8 @@ export async function updateSupplierOrder(id: string, _: FormState, formData: Fo
 
 export async function deleteSupplierOrder(id: string) {
   await requireAdmin();
+  const printerCount = await prisma.printer.count({ where: { supplierOrderItem: { supplierOrderId: id } } });
+  if (printerCount > 0) redirect(`/supplier-orders/${id}?error=${encodeURIComponent("该订单已有打印机台账记录，无法删除。")}`);
   const item = await prisma.supplierOrder.delete({ where: { id } });
   await deleteAttachment(item.orderAttachmentUrl);
   revalidatePath("/supplier-orders");

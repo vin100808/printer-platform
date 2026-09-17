@@ -557,7 +557,7 @@ orderNo 不由人工填写。
 
 plannedEntryDate 必填。
 
-明细创建后可在订单编辑页修改（保存时整体替换）；数量不得低于已部署台数（TASK 05 接入 Printer 后强制校验）。
+明细创建后可在订单编辑页修改（保存时整体替换）；数量不得低于已部署台数（TASK 05 起已强制校验，按套餐汇总校验）。
 
 重要规则：
 
@@ -608,7 +608,7 @@ CustomerOrderItem 与 Printer：
 
 plannedEntryDate 必填。
 
-明细创建后可在订单编辑页修改（保存时整体替换）；数量不得低于已部署台数（TASK 05 接入 Printer 后强制校验）。
+明细创建后可在订单编辑页修改（保存时整体替换）；数量不得低于已部署台数（TASK 05 起已强制校验，按套餐汇总校验）。
 
 SupplierOrderItem 与 Printer：
 
