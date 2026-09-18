@@ -130,3 +130,26 @@
 - 未实现 TASK 07 及之后的业务功能。
 
 下一阶段：等待人工验收后执行 TASK 07。
+
+## TASK 07｜二维码抄表
+
+状态：已完成
+
+完成内容：
+
+- MeterReading 数据模型与 migration：printerId、readingYear / readingMonth（业务月份）、前后黑白 / 彩色读数、bwUsage / colorUsage / bwEquivalentUsage（计算快照）、photoUrl、submittedAt、status（submitted / adjusted）、adminNote、updatedBy。
+- 唯一约束 `UNIQUE(printerId, readingYear, readingMonth)`：一台打印机一个业务月份只能存在一条正式抄表，数据库层兜底。
+- 公开抄表页 `/meter/{qrToken}`：无需登录；展示客户、地点、机型等设备信息；每月 1-3 日开放提交上一自然月（4-25 日显示「本期已关闭」，26 日起显示「本期尚未开放」）。
+- 设备类型适配：彩色机显示黑白 + 彩色读数，黑白机只显示黑白；黑白机服务端拒绝彩色读数（防篡改）。
+- 提交规则：仅运行中打印机可提交（已换机 / 已撤机提示停止使用）；必须上传抄表照片（JPG / PNG，最大 10MB，S3 对象存储）；当前读数不得低于上期读数（上期 = 最近抄表或进场初始读数）；本期已提交则显示「已提交，如需修改请联系管理员」，不可二次提交。
+- 固定换算规则落地：1 张黑白 = 1 BW Equivalent，1 张彩色 = 10 BW Equivalent，服务端计算并快照。
+- 后台管理：打印机详情页展示抄表历史（含照片、状态、调整备注）与公开抄表入口链接；管理员可在 `/meter-readings/[id]/edit` 调整读数（必填调整说明，状态变「已调整」，记录操作人，重新计算用量）。
+- 增加 meter 单元测试（开放窗口三种状态、跨年期份、用量计算、schema 校验）。
+
+范围说明：
+
+- 「本期应抄 / 已抄 / 未抄」汇总视图属于 TASK 09；结算金额属于 TASK 08。
+- 抄表窗口按服务器本地时间判定。
+- 未实现 TASK 08 及之后的业务功能。
+
+下一阶段：等待人工验收后执行 TASK 08。

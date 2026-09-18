@@ -50,10 +50,12 @@ const allowedTypes = new Set([
   "image/png",
 ]);
 
-async function uploadFile(file: File, keyPrefix: string) {
+const photoTypes = new Set(["image/jpeg", "image/png"]);
+
+async function uploadFile(file: File, keyPrefix: string, label = "附件", types: Set<string> = allowedTypes) {
   if (!file.size) return null;
-  if (file.size > 10 * 1024 * 1024) throw new Error("附件不能超过 10MB");
-  if (!allowedTypes.has(file.type)) throw new Error("附件仅支持 PDF、Word、JPG 或 PNG");
+  if (file.size > 10 * 1024 * 1024) throw new Error(`${label}不能超过 10MB`);
+  if (!types.has(file.type)) throw new Error(`${label}仅支持 ${label === "照片" ? "JPG 或 PNG" : "PDF、Word、JPG 或 PNG"}`);
 
   await ensureBucket();
   const extension = path.extname(file.name).toLowerCase().replace(/[^.a-z0-9]/g, "");
@@ -76,6 +78,10 @@ export async function uploadContractAttachment(file: File, side: "customer" | "s
 
 export async function uploadOrderAttachment(file: File, side: "customer" | "supplier") {
   return uploadFile(file, `orders/${side}`);
+}
+
+export async function uploadMeterPhoto(file: File) {
+  return uploadFile(file, "meter-readings/photos", "照片", photoTypes);
 }
 
 export async function deleteAttachment(url: string | null | undefined) {

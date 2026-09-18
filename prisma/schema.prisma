@@ -339,6 +339,7 @@ model Printer {
   supplierOrderItem   SupplierOrderItem @relation(fields: [supplierOrderItemId], references: [id], onDelete: Restrict)
   previousPrinter     Printer?          @relation("PrinterReplacement", fields: [previousPrinterId], references: [id], onDelete: SetNull)
   replacementPrinter  Printer?          @relation("PrinterReplacement")
+  meterReadings       MeterReading[]
   createdAt           DateTime          @default(now()) @map("created_at")
   updatedAt           DateTime          @updatedAt @map("updated_at")
 
@@ -347,4 +348,31 @@ model Printer {
   @@index([supplierOrderItemId])
   @@index([status])
   @@map("printers")
+}
+
+model MeterReading {
+  id                   String   @id @default(cuid())
+  printerId            String   @map("printer_id")
+  readingYear          Int      @map("reading_year")
+  readingMonth         Int      @map("reading_month")
+  previousBwReading    Int      @map("previous_bw_reading")
+  currentBwReading     Int      @map("current_bw_reading")
+  previousColorReading Int      @map("previous_color_reading")
+  currentColorReading  Int      @map("current_color_reading")
+  bwUsage              Int      @map("bw_usage")
+  colorUsage           Int      @map("color_usage")
+  bwEquivalentUsage    Int      @map("bw_equivalent_usage")
+  photoUrl             String   @map("photo_url")
+  submittedAt          DateTime @default(now()) @map("submitted_at")
+  status               String   @default("submitted") @map("status")
+  adminNote            String?  @map("admin_note")
+  updatedBy            String?  @map("updated_by")
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+  printer              Printer  @relation(fields: [printerId], references: [id], onDelete: Cascade)
+
+  @@unique([printerId, readingYear, readingMonth])
+  @@index([printerId])
+  @@index([readingYear, readingMonth])
+  @@map("meter_readings")
 }
