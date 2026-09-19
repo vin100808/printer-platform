@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { COLOR_BW_EQUIVALENT, computeUsages, meterAdminUpdateSchema, meterStatusLabel, meterSubmitSchema, meterWindow } from "@/lib/meter";
+import { COLOR_BW_EQUIVALENT, computeUsages, currentPeriod, meterAdminUpdateSchema, meterStatusLabel, meterSubmitSchema, meterWindow } from "@/lib/meter";
 
 describe("meterWindow", () => {
   it("每月 1-3 日开放提交上一自然月", () => {
@@ -19,6 +19,14 @@ describe("meterWindow", () => {
   it("每月 26 日起显示本期尚未开放", () => {
     expect(meterWindow(new Date(2026, 8, 30))).toEqual({ phase: "before", year: 2026, month: 9 });
     expect(meterWindow(new Date(2026, 8, 26))).toEqual({ phase: "before", year: 2026, month: 9 });
+  });
+});
+
+describe("currentPeriod", () => {
+  it("与 meterWindow 同一业务月份", () => {
+    expect(currentPeriod(new Date(2026, 9, 2))).toEqual({ year: 2026, month: 9 });
+    expect(currentPeriod(new Date(2026, 9, 15))).toEqual({ year: 2026, month: 9 });
+    expect(currentPeriod(new Date(2026, 8, 30))).toEqual({ year: 2026, month: 9 });
   });
 });
 

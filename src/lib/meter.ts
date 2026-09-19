@@ -40,6 +40,12 @@ export function meterWindow(now: Date): MeterWindow {
   return { phase: "closed", ...previous };
 }
 
+/** 当前结算/抄表周期：与 meterWindow 同一业务月份（开放 / 关闭期为上一自然月，月末尚未开放期为当月）。 */
+export function currentPeriod(now: Date) {
+  const window = meterWindow(now);
+  return { year: window.year, month: window.month };
+}
+
 /** 由前后读数计算用量；当前读数低于上期读数视为非法。 */
 export function computeUsages(previousBw: number, currentBw: number, previousColor: number, currentColor: number) {
   const bwUsage = currentBw - previousBw;

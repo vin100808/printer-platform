@@ -16,14 +16,14 @@ export default async function AdminLayout({ children }: Readonly<{ children: Rea
           </span>
         </Link>
         <nav className="mt-10 space-y-1">
-          {[{ href: "/dashboard", label: "工作台" }, { href: "/customers", label: "客户管理" }, { href: "/suppliers", label: "供应商管理" }, { href: "/customer-contracts", label: "客户合同" }, { href: "/supplier-contracts", label: "供应商合同" }, { href: "/machine-models", label: "机型管理" }, { href: "/customer-packages", label: "客户套餐" }, { href: "/supplier-packages", label: "供应商套餐" }, { href: "/customer-orders", label: "客户订单" }, { href: "/supplier-orders", label: "供应商订单" }, { href: "/printers", label: "打印机台账" }].map((item) => (
+          {[{ href: "/dashboard", label: "工作台" }, { href: "/customers", label: "客户管理" }, { href: "/suppliers", label: "供应商管理" }, { href: "/customer-contracts", label: "客户合同" }, { href: "/supplier-contracts", label: "供应商合同" }, { href: "/machine-models", label: "机型管理" }, { href: "/customer-packages", label: "客户套餐" }, { href: "/supplier-packages", label: "供应商套餐" }, { href: "/customer-orders", label: "客户订单" }, { href: "/supplier-orders", label: "供应商订单" }, { href: "/printers", label: "打印机台账" }, { href: "/meter-readings", label: "抄表管理" }].map((item) => (
             <Link className="block rounded-xl px-4 py-3 text-sm font-medium text-slate-300 transition hover:bg-white/10 hover:text-white" href={item.href} key={item.href}>{item.label}</Link>
           ))}
         </nav>
         <p className="absolute bottom-6 left-5 right-5 rounded-xl border border-slate-800 px-4 py-3 text-xs leading-5 text-slate-400">
-          TASK 08 运营结算
+          TASK 09 后台首页与常用视图
           <br />
-          Settlement
+          Dashboard / Views
         </p>
       </aside>
       <div className="lg:pl-64">

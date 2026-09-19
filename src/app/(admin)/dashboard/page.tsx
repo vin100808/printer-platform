@@ -1,46 +1,52 @@
+import Link from "next/link";
 import { connection } from "next/server";
+import { currentPeriod } from "@/lib/meter";
 import { prisma } from "@/lib/prisma";
+
+function monthRange(year: number, month: number) {
+  return { start: new Date(Date.UTC(year, month - 1, 1)), end: new Date(Date.UTC(year, month, 0)) };
+}
+
+function StatCard({ title, value, hint, href }: { title: string; value: number; hint: string; href?: string }) {
+  const body = (
+    <article className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:border-blue-300">
+      <p className="text-sm text-slate-500">{title}</p>
+      <p className="mt-2 text-3xl font-bold tracking-tight text-slate-950">{value}</p>
+      <p className="mt-2 text-xs text-slate-400">{hint}</p>
+    </article>
+  );
+  return href ? <Link href={href}>{body}</Link> : body;
+}
 
 export default async function DashboardPage() {
   await connection();
-  await prisma.$queryRaw`SELECT 1`;
-
+  const period = currentPeriod(new Date());
+  const { start, end } = monthRange(period.year, period.month);
+  const [activePrinters, duePrinters, submitted, customers, suppliers] = await Promise.all([
+    prisma.printer.count({ where: { status: "active" } }),
+    prisma.printer.count({
+      where: { entryDate: { lte: end }, OR: [{ exitDate: null }, { exitDate: { gte: start } }] },
+    }),
+    prisma.meterReading.count({ where: { readingYear: period.year, readingMonth: period.month } }),
+    prisma.customer.count({ where: { status: "active" } }),
+    prisma.supplier.count({ where: { status: "active" } }),
+  ]);
+  const unsubmitted = Math.max(duePrinters - submitted, 0);
   return (
     <div className="mx-auto max-w-6xl">
       <p className="text-sm font-semibold text-blue-700">工作台</p>
-      <h1 className="mt-1 text-3xl font-bold tracking-tight text-slate-950">基础主数据已就绪</h1>
-      <p className="mt-3 max-w-2xl text-slate-600">客户、供应商、部署地点和框架合同已经可以在后台维护。</p>
-
-      <div className="mt-8 grid gap-5 md:grid-cols-3">
-        <StatusCard title="应用服务" value="运行正常" detail="Next.js + TypeScript" tone="green" />
-        <StatusCard title="数据库" value="连接正常" detail="PostgreSQL + Prisma" tone="blue" />
-        <StatusCard title="当前阶段" value="TASK 02" detail="基础主数据" tone="slate" />
+      <h1 className="mt-1 text-3xl font-bold tracking-tight text-slate-950">运营总览</h1>
+      <p className="mt-3 max-w-2xl text-sm text-slate-600">
+        本期业务月份：<b>{period.year} 年 {period.month} 月</b>（每月 1-3 日开放客户扫码提交上一自然月读数）。
+      </p>
+      <div className="mt-8 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+        <StatCard hint="状态为运行中的打印机" title="使用中机器" value={activePrinters} href="/printers?status=active" />
+        <StatCard hint={`${period.year}-${String(period.month).padStart(2, "0")} 应提交抄表的在场机器`} title="本期应抄" value={duePrinters} href="/meter-readings" />
+        <StatCard hint="本期已提交的抄表数" title="本期已抄" value={submitted} href="/meter-readings" />
+        <StatCard hint="本期尚未提交，需催收" title="本期未抄" value={unsubmitted} href="/meter-readings" />
+        <StatCard hint="启用状态的客户" title="当前客户数" value={customers} href="/customers" />
+        <StatCard hint="启用状态的供应商" title="当前供应商数" value={suppliers} href="/suppliers" />
       </div>
-
-      <section className="mt-8 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-        <h2 className="text-lg font-semibold text-slate-950">已启用模块</h2>
-        <div className="mt-4 grid gap-3 text-sm text-slate-600 sm:grid-cols-2">
-          {["客户与 Location 管理", "供应商管理", "客户框架合同", "供应商框架合同"].map((item) => (
-            <div className="rounded-xl bg-slate-50 px-4 py-3" key={item}>✓ {item}</div>
-          ))}
-        </div>
-      </section>
     </div>
-  );
-}
-
-function StatusCard({ title, value, detail, tone }: { title: string; value: string; detail: string; tone: "green" | "blue" | "slate" }) {
-  const colors = {
-    green: "bg-emerald-50 text-emerald-700",
-    blue: "bg-blue-50 text-blue-700",
-    slate: "bg-slate-100 text-slate-700",
-  };
-
-  return (
-    <article className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-      <p className="text-sm text-slate-500">{title}</p>
-      <p className={`mt-4 inline-flex rounded-full px-3 py-1 text-sm font-semibold ${colors[tone]}`}>{value}</p>
-      <p className="mt-3 text-sm font-medium text-slate-800">{detail}</p>
-    </article>
   );
 }
