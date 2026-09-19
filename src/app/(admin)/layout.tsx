@@ -21,9 +21,9 @@ export default async function AdminLayout({ children }: Readonly<{ children: Rea
           ))}
         </nav>
         <p className="absolute bottom-6 left-5 right-5 rounded-xl border border-slate-800 px-4 py-3 text-xs leading-5 text-slate-400">
-          TASK 09 后台首页与常用视图
+          V1 全部 TASK 已完成
           <br />
-          Dashboard / Views
+          数据完整性与测试
         </p>
       </aside>
       <div className="lg:pl-64">
