@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { customerOrderSchema, deploymentStatus, nextOrderNo, parseOrderItems, supplierOrderSchema } from "./orders";
+import { customerOrderSchema, computeDepositAmount, defaultEndDate, deploymentStatus, nextOrderNo, parseOrderItems, supplierOrderSchema } from "./orders";
 
 function formDataOf(entries: Record<string, string[]>) {
   const formData = new FormData();
@@ -81,5 +81,21 @@ describe("TASK 04 order validation", () => {
     expect(deploymentStatus(0, 2)).toBe("未部署");
     expect(deploymentStatus(1, 2)).toBe("部分部署");
     expect(deploymentStatus(2, 2)).toBe("已部署");
+  });
+
+  it("computes deposit as total quantity × 2000", () => {
+    expect(computeDepositAmount(0)).toBe(0);
+    expect(computeDepositAmount(1)).toBe(2000);
+    // A3 × 2 + A4 × 3 = 5 台 → 10000
+    expect(computeDepositAmount(5)).toBe(10000);
+    expect(() => computeDepositAmount(1.5)).toThrow();
+    expect(() => computeDepositAmount(-1)).toThrow();
+  });
+
+  it("defaults endDate to startDate + 3 years - 1 day", () => {
+    expect(defaultEndDate(new Date(Date.UTC(2026, 9, 1)))).toEqual(new Date(Date.UTC(2029, 8, 30)));
+    expect(defaultEndDate(new Date(Date.UTC(2026, 0, 1)))).toEqual(new Date(Date.UTC(2029, 0, 0)));
+    // 闰日起点不崩溃
+    expect(defaultEndDate(new Date(Date.UTC(2028, 1, 29)))).toEqual(new Date(Date.UTC(2031, 1, 28)));
   });
 });

@@ -30,8 +30,8 @@ export default async function EditPrinterPage({ params }: PageProps<"/printers/[
       value={{
         printerCode: printer.printerCode,
         supplierAssetCode: printer.supplierAssetCode,
-        customerItemLabel: `订单 ${printer.customerOrderItem.order.orderNo} · ${printer.customerOrderItem.order.customer.customerName} · ${printer.customerOrderItem.order.location.locationName} · ${printer.customerOrderItem.customerPackage.packageName} V${printer.customerOrderItem.customerPackage.version}`,
-        supplierItemLabel: `订单 ${printer.supplierOrderItem.order.orderNo} · ${printer.supplierOrderItem.order.supplier.supplierName} · ${printer.supplierOrderItem.supplierPackage.packageName} V${printer.supplierOrderItem.supplierPackage.version}`,
+        customerItemLabel: `订单 ${printer.customerOrderItem.order.orderNo} · ${printer.customerOrderItem.order.customer.customerName} · ${printer.customerOrderItem.order.location?.locationName ?? "—"} · ${printer.customerOrderItem.customerPackage.packageName} V${printer.customerOrderItem.customerPackage.version}`,
+        supplierItemLabel: printer.supplierOrderItem ? `订单 ${printer.supplierOrderItem.order.orderNo} · ${printer.supplierOrderItem.order.supplier.supplierName} · ${printer.supplierOrderItem.supplierPackage.packageName} V${printer.supplierOrderItem.supplierPackage.version}` : "未关联供应商订单",
         machineModelId: printer.machineModel.id,
         entryDate: formatDateInput(printer.entryDate),
         initialBwReading: String(printer.initialBwReading),

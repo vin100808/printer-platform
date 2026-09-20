@@ -31,7 +31,7 @@ export default async function MeterPage({ params, searchParams }: PageProps<"/me
   const deviceInfo = (
     <dl className="mt-4 grid grid-cols-2 gap-3 text-sm">
       <div className="rounded-xl bg-slate-50 p-3"><dt className="text-xs text-slate-500">客户</dt><dd className="mt-1 font-medium text-slate-900">{order.customer.customerName}</dd></div>
-      <div className="rounded-xl bg-slate-50 p-3"><dt className="text-xs text-slate-500">部署地点</dt><dd className="mt-1 font-medium text-slate-900">{order.location.locationName}</dd></div>
+      <div className="rounded-xl bg-slate-50 p-3"><dt className="text-xs text-slate-500">部署地点</dt><dd className="mt-1 font-medium text-slate-900">{order.location?.locationName ?? "—"}</dd></div>
       <div className="rounded-xl bg-slate-50 p-3"><dt className="text-xs text-slate-500">机型</dt><dd className="mt-1 font-medium text-slate-900">{printer.machineModel.brand} {printer.machineModel.modelName}</dd></div>
       <div className="rounded-xl bg-slate-50 p-3"><dt className="text-xs text-slate-500">设备类型</dt><dd className="mt-1 font-medium text-slate-900">{deviceTypeLabel[printer.machineModel.deviceType]}</dd></div>
     </dl>

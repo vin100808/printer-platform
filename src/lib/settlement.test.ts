@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { activeDaysInMonth, computeSettlement, computeSettlementSide, daysInMonth } from "@/lib/settlement";
+import { activeDaysInMonth, computeSettlement, computeSettlementOptionalSupplier, computeSettlementSide, daysInMonth } from "@/lib/settlement";
 
 const d = (s: string) => new Date(`${s}T00:00:00.000Z`);
 
@@ -81,5 +81,40 @@ describe("computeSettlement", () => {
   it("当月不在场返回 null", () => {
     expect(computeSettlement({ ...base, entryDate: d("2026-10-01") })).toBeNull();
     expect(computeSettlement({ ...base, exitDate: d("2026-08-31") })).toBeNull();
+  });
+});
+
+describe("computeSettlementOptionalSupplier", () => {
+  const base = {
+    year: 2026,
+    month: 9,
+    entryDate: d("2026-09-20"),
+    exitDate: null,
+    bwUsage: 8000,
+    colorUsage: 300,
+    bwEquivalentUsage: 11000,
+    customerPackage: { monthlyRent: "450", monthlyFreeBwEquivalent: "10000", overageRateBwEquivalent: "0.03" },
+  };
+
+  it("供应商套餐缺失时客户侧照常计算，供应商与毛利为 null", () => {
+    const result = computeSettlementOptionalSupplier({ ...base, supplierPackage: null });
+    if (!result) throw new Error("不应为 null");
+    expect(result.customer.monthlyAmount.toString()).toBe("385");
+    expect(result.supplier).toBeNull();
+    expect(result.operatingGrossProfit).toBeNull();
+  });
+
+  it("供应商套餐存在时与 computeSettlement 结果一致", () => {
+    const supplierPackage = { monthlyRent: "400", monthlyFreeBwEquivalent: "16000", overageRateBwEquivalent: "0.03" };
+    const flexible = computeSettlementOptionalSupplier({ ...base, supplierPackage });
+    const strict = computeSettlement({ ...base, supplierPackage });
+    if (!flexible || !strict) throw new Error("不应为 null");
+    expect(flexible.customer.monthlyAmount.toString()).toBe(strict.customer.monthlyAmount.toString());
+    expect(flexible.supplier?.monthlyAmount.toString()).toBe(strict.supplier.monthlyAmount.toString());
+    expect(flexible.operatingGrossProfit?.toString()).toBe(strict.operatingGrossProfit.toString());
+  });
+
+  it("当月不在场仍返回 null", () => {
+    expect(computeSettlementOptionalSupplier({ ...base, supplierPackage: null, entryDate: d("2026-10-01") })).toBeNull();
   });
 });

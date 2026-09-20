@@ -79,6 +79,39 @@ export interface SettlementResult {
   operatingGrossProfit: Decimal;
 }
 
+export interface OptionalSupplierSettlementResult extends Omit<SettlementResult, "supplier" | "operatingGrossProfit"> {
+  supplier: SettlementSide | null;
+  operatingGrossProfit: Decimal | null;
+}
+
+/**
+ * 供应商侧价格可能缺失（新流程不再强制 SupplierOrder/SupplierPackage）。
+ * 客户侧照常计算；supplier 为 null 时运营毛利为 null（暂不可计算），不得因此报错或阻塞。
+ */
+export function computeSettlementOptionalSupplier(
+  input: Omit<SettlementInput, "supplierPackage"> & { supplierPackage: PackageTerms | null },
+): OptionalSupplierSettlementResult | null {
+  const activeDays = activeDaysInMonth(input.year, input.month, input.entryDate, input.exitDate);
+  if (activeDays <= 0) return null;
+  const dim = daysInMonth(input.year, input.month);
+  const customer = computeSettlementSide(input.customerPackage, activeDays, dim, input.bwEquivalentUsage);
+  const supplier = input.supplierPackage
+    ? computeSettlementSide(input.supplierPackage, activeDays, dim, input.bwEquivalentUsage)
+    : null;
+  return {
+    year: input.year,
+    month: input.month,
+    daysInMonth: dim,
+    activeDays,
+    bwUsage: new Decimal(input.bwUsage),
+    colorUsage: new Decimal(input.colorUsage),
+    bwEquivalentUsage: new Decimal(input.bwEquivalentUsage),
+    customer,
+    supplier,
+    operatingGrossProfit: supplier ? money2(customer.monthlyAmount.sub(supplier.monthlyAmount)) : null,
+  };
+}
+
 /** 整月结算：当月不在场（0 天）返回 null，不产生金额。 */
 export function computeSettlement(input: SettlementInput): SettlementResult | null {
   const activeDays = activeDaysInMonth(input.year, input.month, input.entryDate, input.exitDate);

@@ -33,7 +33,7 @@ export default async function NewPrinterPage({ searchParams }: { searchParams: P
     .filter((item) => hasDeploymentCapacity(item.printers.length, item.quantity))
     .map((item) => ({
       id: item.id,
-      label: `订单 ${item.order.orderNo} · ${item.order.customer.customerName} · ${item.order.location.locationName} · ${item.customerPackage.packageName} V${item.customerPackage.version} · 已部署 ${item.printers.length}/${item.quantity}`,
+      label: `订单 ${item.order.orderNo} · ${item.order.customer.customerName} · ${item.order.location?.locationName ?? "—"} · ${item.customerPackage.packageName} V${item.customerPackage.version} · 已部署 ${item.printers.length}/${item.quantity}`,
     }));
   const supplierOptions: PrinterSelectOption[] = supplierItems
     .filter((item) => hasDeploymentCapacity(item.printers.length, item.quantity))

@@ -31,6 +31,11 @@ enum OrderStatus {
   cancelled
 }
 
+enum BillingCycle {
+  monthly
+  quarterly
+}
+
 enum DeviceType {
   black_white
   color
@@ -105,6 +110,7 @@ model Supplier {
   contracts                SupplierFrameworkContract[]
   supplierPackages         SupplierPackage[]
   supplierOrders           SupplierOrder[]
+  customerOrders           CustomerOrder[]
   createdAt                DateTime                    @default(now()) @map("created_at")
   updatedAt                DateTime                    @updatedAt @map("updated_at")
 
@@ -240,24 +246,34 @@ model SupplierPackage {
 }
 
 model CustomerOrder {
-  id                 String                    @id @default(cuid())
-  orderNo            String                    @map("order_no")
-  customerId         String                    @map("customer_id")
-  locationId         String                    @map("location_id")
-  customerContractId String                    @map("customer_contract_id")
-  orderDate          DateTime                  @map("order_date") @db.Date
-  status             OrderStatus               @default(draft)
-  orderAttachmentUrl String?                   @map("order_attachment_url")
-  remark             String?
-  customer           Customer                  @relation(fields: [customerId], references: [id], onDelete: Restrict)
-  location           Location                  @relation(fields: [locationId], references: [id], onDelete: Restrict)
-  customerContract   CustomerFrameworkContract @relation(fields: [customerContractId], references: [id], onDelete: Restrict)
-  items              CustomerOrderItem[]
-  createdAt          DateTime                  @default(now()) @map("created_at")
-  updatedAt          DateTime                  @updatedAt @map("updated_at")
+  id                    String                     @id @default(cuid())
+  orderNo               String                     @map("order_no")
+  customerId            String                     @map("customer_id")
+  supplierId            String?                    @map("supplier_id")
+  locationId            String?                    @map("location_id")
+  customerContractId    String?                    @map("customer_contract_id")
+  installationAddress   String?                    @map("installation_address")
+  startDate             DateTime?                  @map("start_date") @db.Date
+  endDate               DateTime?                  @map("end_date") @db.Date
+  billingCycle          BillingCycle               @default(monthly) @map("billing_cycle")
+  depositAmount         Decimal?                   @map("deposit_amount") @db.Decimal(10, 2)
+  depositReceivedDate   DateTime?                  @map("deposit_received_date") @db.Date
+  orderDate             DateTime                   @map("order_date") @db.Date
+  status                OrderStatus                @default(draft)
+  contractAttachmentUrl String?                    @map("contract_attachment_url")
+  orderAttachmentUrl    String?                    @map("order_attachment_url")
+  remark                String?
+  customer              Customer                   @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  supplier              Supplier?                  @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  location              Location?                  @relation(fields: [locationId], references: [id], onDelete: Restrict)
+  customerContract      CustomerFrameworkContract? @relation(fields: [customerContractId], references: [id], onDelete: Restrict)
+  items                 CustomerOrderItem[]
+  createdAt             DateTime                   @default(now()) @map("created_at")
+  updatedAt             DateTime                   @updatedAt @map("updated_at")
 
   @@unique([orderNo])
   @@index([customerId])
+  @@index([supplierId])
   @@index([status])
   @@map("customer_orders")
 }
@@ -320,32 +336,33 @@ model SupplierOrderItem {
 }
 
 model Printer {
-  id                  String            @id @default(cuid())
-  printerCode         String            @unique @map("printer_code")
-  supplierAssetCode   String            @map("supplier_asset_code")
-  machineModelId      String            @map("machine_model_id")
-  customerOrderItemId String            @map("customer_order_item_id")
-  supplierOrderItemId String            @map("supplier_order_item_id")
-  entryDate           DateTime          @map("entry_date") @db.Date
-  exitDate            DateTime?         @map("exit_date") @db.Date
-  initialBwReading    Int               @map("initial_bw_reading")
-  initialColorReading Int               @map("initial_color_reading")
-  status              PrinterStatus     @default(draft)
-  previousPrinterId   String?           @unique @map("previous_printer_id")
-  qrToken             String            @unique @map("qr_token")
+  id                  String             @id @default(cuid())
+  printerCode         String             @map("printer_code")
+  supplierAssetCode   String             @map("supplier_asset_code")
+  machineModelId      String             @map("machine_model_id")
+  customerOrderItemId String             @map("customer_order_item_id")
+  supplierOrderItemId String?            @map("supplier_order_item_id")
+  entryDate           DateTime           @map("entry_date") @db.Date
+  exitDate            DateTime?          @map("exit_date") @db.Date
+  initialBwReading    Int                @map("initial_bw_reading")
+  initialColorReading Int                @map("initial_color_reading")
+  status              PrinterStatus      @default(draft)
+  previousPrinterId   String?            @unique @map("previous_printer_id")
+  qrToken             String             @unique @map("qr_token")
   remark              String?
-  machineModel        MachineModel      @relation(fields: [machineModelId], references: [id], onDelete: Restrict)
-  customerOrderItem   CustomerOrderItem @relation(fields: [customerOrderItemId], references: [id], onDelete: Restrict)
-  supplierOrderItem   SupplierOrderItem @relation(fields: [supplierOrderItemId], references: [id], onDelete: Restrict)
-  previousPrinter     Printer?          @relation("PrinterReplacement", fields: [previousPrinterId], references: [id], onDelete: SetNull)
-  replacementPrinter  Printer?          @relation("PrinterReplacement")
+  machineModel        MachineModel       @relation(fields: [machineModelId], references: [id], onDelete: Restrict)
+  customerOrderItem   CustomerOrderItem  @relation(fields: [customerOrderItemId], references: [id], onDelete: Restrict)
+  supplierOrderItem   SupplierOrderItem? @relation(fields: [supplierOrderItemId], references: [id], onDelete: Restrict)
+  previousPrinter     Printer?           @relation("PrinterReplacement", fields: [previousPrinterId], references: [id], onDelete: SetNull)
+  replacementPrinter  Printer?           @relation("PrinterReplacement")
   meterReadings       MeterReading[]
-  createdAt           DateTime          @default(now()) @map("created_at")
-  updatedAt           DateTime          @updatedAt @map("updated_at")
+  createdAt           DateTime           @default(now()) @map("created_at")
+  updatedAt           DateTime           @updatedAt @map("updated_at")
 
   @@index([machineModelId])
   @@index([customerOrderItemId])
   @@index([supplierOrderItemId])
+  @@index([printerCode])
   @@index([status])
   @@map("printers")
 }

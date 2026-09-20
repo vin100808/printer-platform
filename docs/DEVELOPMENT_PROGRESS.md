@@ -210,3 +210,65 @@
 - V1 十个 TASK 全部完成；后续可进入整体人工验收与部署准备。
 
 下一阶段：等待人工验收 V1 整体。
+
+## TASK 11｜业务模型简化重构评估
+
+状态：已完成（评估报告经人工确认，含 8 条修正）
+
+完成内容：
+
+- 输出《TASK 11｜业务模型简化重构评估报告》（`docs/TASK11-业务模型简化重构评估报告.md`）：当前真实系统结构、新旧模型映射、Gap Analysis、风险评估、数据迁移方案、UI 重构方案、TASK 12 onward 拆分。
+- 核心结论：不新增 Deal Model，直接演进现有 `CustomerOrder` 为新的核心 Order；旧表（Location / FrameworkContract / SupplierOrder / SupplierOrderItem / SupplierPackage）全部保留兼容、不 DROP；MeterReading 成熟逻辑零重写。
+- 人工确认的修正要点：Order 保留两个独立文件槽（合同文件 + 订单附件）；历史 supplierId 按 0/1/多供应商规则回填；installationAddress 只取 Location 真实地址字段；printerCode 不做全库全局唯一（内部唯一靠 id / qrToken）；Printer 进场不得依赖 SupplierOrder；供应商侧价格缺失不得阻塞客户业务；Order status 不做高风险 enum 改名；管理员保留最终修改权（风险提示而非 hard block）。
+
+下一阶段：TASK 12（Schema 演进与兼容迁移）。
+
+## TASK 12｜Schema 演进与兼容迁移
+
+状态：已完成
+
+Schema 实际修改：
+
+- 新增 `enum BillingCycle { monthly, quarterly }`（quarterly 为自然季度，TASK 16 在月度计算上聚合）。
+- `CustomerOrder` 演进为新核心 Order：
+  - 新增 `supplierId String?`（FK → Supplier，ON DELETE RESTRICT，含反向关系与索引）；
+  - `locationId` / `customerContractId` 由必填改为可空（新业务不再以 Location / 框架合同为前置条件）；
+  - 新增 `installationAddress String?`、`startDate DateTime? @db.Date`、`endDate DateTime? @db.Date`、`billingCycle BillingCycle @default(monthly)`、`depositAmount Decimal? @(10,2)`、`depositReceivedDate DateTime? @db.Date`、`contractAttachmentUrl String?`（第二个文件槽 orderAttachmentUrl 沿用既有字段）。
+- `Printer.supplierOrderItemId` 由必填改为可空；移除 `printerCode` 全库唯一约束，降为普通索引（不同供应商允许同编号，内部唯一靠 id / qrToken）。
+- 未做的事（有意）：OrderStatus enum 不改名（保留 `confirmed`，UI 层映射为「履约中」）；不 DROP 任何旧表。
+
+Migration：`20260919180505_task12_order_evolution`
+
+- DDL：BillingCycle enum、三列 DROP NOT NULL、Order 新列、printers 索引替换、supplier FK。
+- 数据回填（全部在 migration.sql 内，可重放）：
+  1. installationAddress ← Location.address（地址缺失保持 NULL，不编造）；
+  2. startDate ← order_date（无更可靠历史来源）；
+  3. endDate ← startDate + 3 年 − 1 天（默认规则）；
+  4. depositAmount ← Σ 明细 quantity × 2000（depositReceivedDate 保持 NULL，历史收款状态未知）；
+  5. supplierId ← 仅当历史订单反推出恰好 1 个 distinct 供应商时回填；0 个或多个保持 NULL，历史事实继续由旧 SupplierOrderItem 关系承载。
+
+代码兼容修复（Schema 可空化的空值防御，不改业务逻辑）：
+
+- 约 13 个页面/测试文件：`order.location`、`order.customerContract`、`printer.supplierOrderItem` 全部改为 null-safe 显示（「—」/「未关联供应商订单」）。
+- `src/lib/settlement.ts` 新增 `computeSettlementOptionalSupplier`：供应商套餐缺失时客户侧照常计算，supplier 与毛利返回 null（页面显示「未配置」/「暂不可计算」），落实「供应商侧缺失不得阻塞客户业务」。
+- `src/lib/orders.ts` 新增纯函数 `DEPOSIT_PER_PRINTER = 2000`、`computeDepositAmount(totalQuantity)`、`defaultEndDate(startDate)`（startDate + 3 年 − 1 天，按 UTC 日历日对齐 @db.Date），供 TASK 13+ 表单与回填复用。
+
+历史真实数据迁移结果（迁移前后数量逐项核对一致）：
+
+- Customer 1 / Supplier 1 / Location 1 / 客户框架合同 1 / 客户订单 1（明细 1）/ 供应商订单 1（明细 1）/ Printer 1 / 抄表 0 / 套餐各 1。
+- 试点订单 `2026091702`：supplierId 已回填（恰 1 个供应商）；installationAddress 回填为 Location.address（试点值 `342432`）；startDate 2026-09-02（= order_date），endDate 2029-09-01（默认规则）；depositAmount 64000（= 32 × 2000）；depositReceivedDate 保持 NULL。
+- supplierId 回填 1 条 / NULL 0 条（仅试点订单，无多供应商历史订单）。
+
+验证结果：
+
+- 迁移后脚本验证：数量与快照一致；supplierId=NULL 订单详情页 200；supplierOrderItemId=NULL 打印机详情页 200 且显示「未配置」；试点打印机页正常；临时数据已清理。
+- 80 个单元测试全绿（新增 5 个：押金计算 ×1、endDate 默认 ×1、OptionalSupplier 结算 ×3）。
+- prisma validate / format --check / migrate status（up to date）/ typecheck / lint / build 全部通过。
+
+风险与遗留：
+
+- 旧代码仍依赖旧模型（TASK 13+ 逐步切换，当前均可正常运行）：Location（订单创建仍必选 Location）、CustomerFrameworkContract（订单创建必选合同）、SupplierOrder / SupplierOrderItem（打印机创建/换机仍要求供应商订单明细）、SupplierPackage（供应商侧结算）。
+- 订单创建/编辑表单尚未使用新字段（supplierId、billingCycle、押金、双附件、endDate 默认值），属 TASK 13/14 范围。
+- printerCode 去掉全局唯一后，重复码的应用层提示与按订单上下文识别在 TASK 15 处理。
+
+下一阶段：TASK 13（Order 核心业务流与 UI），等待人工确认后开始。

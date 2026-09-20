@@ -172,7 +172,7 @@ describe("最终 V1 验收场景（端到端数据链路）", () => {
       year: 2026, month: 9, entryDate: printer.entryDate, exitDate: printer.exitDate,
       bwUsage: reading.bwUsage, colorUsage: reading.colorUsage, bwEquivalentUsage: reading.bwEquivalentUsage,
       customerPackage: printer.customerOrderItem.customerPackage,
-      supplierPackage: printer.supplierOrderItem.supplierPackage,
+      supplierPackage: printer.supplierOrderItem!.supplierPackage,
     });
     if (!settlement) throw new Error("结算不应为 null");
     expect(settlement.customer.monthlyAmount.toString()).toBe("385"); // 165 + 220

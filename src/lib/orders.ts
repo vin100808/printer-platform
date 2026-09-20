@@ -97,6 +97,23 @@ export function deploymentStatus(deployed: number, quantity: number): "未部署
   return "部分部署";
 }
 
+/** 押金固定规则：人民币 2,000 元 / 台（系统固定业务规则，不做成配置）。 */
+export const DEPOSIT_PER_PRINTER = 2000;
+
+/** depositAmount = 该 Order 所有 OrderItem.quantity 合计 × 2000。 */
+export function computeDepositAmount(totalQuantity: number): number {
+  if (!Number.isInteger(totalQuantity) || totalQuantity < 0) throw new Error("总台数必须是非负整数");
+  return totalQuantity * DEPOSIT_PER_PRINTER;
+}
+
+/**
+ * endDate 默认规则：startDate + 3 年 - 1 天（如 2026-10-01 → 2029-09-30）。
+ * 仅作为默认计算规则，管理员可手动修改；按 UTC 日历日对齐 @db.Date 存储。
+ */
+export function defaultEndDate(startDate: Date): Date {
+  return new Date(Date.UTC(startDate.getUTCFullYear() + 3, startDate.getUTCMonth(), startDate.getUTCDate() - 1));
+}
+
 export const orderStatusLabel: Record<z.infer<typeof orderStatusSchema>, string> = {
   draft: "草稿",
   confirmed: "已确认",
