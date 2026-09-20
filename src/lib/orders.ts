@@ -16,14 +16,26 @@ const dateInput = (label: string) =>
 export const orderStatusSchema = z.enum(["draft", "confirmed", "completed", "cancelled"]);
 
 // 订单编号不由人工填写：新增时由服务端按「当天日期 + 当日序号」自动生成，客户订单与供应商订单共用同一序列。
-export const customerOrderSchema = z.object({
-  customerId: requiredId("客户"),
-  locationId: requiredId("部署地点"),
-  customerContractId: requiredId("客户框架合同"),
-  orderDate: dateInput("下单日期"),
-  status: orderStatusSchema,
-  remark: optionalText,
-});
+// 新核心 Order：一个订单 = 一次完整租赁交易（客户 + 安装地址 + 供应商，多个套餐明细）。
+export const customerOrderSchema = z
+  .object({
+    customerId: requiredId("客户"),
+    supplierId: requiredId("供应商"),
+    installationAddress: z.string().trim().min(1, "请填写安装地址").max(300, "安装地址不能超过 300 字"),
+    startDate: dateInput("开始日期"),
+    endDate: z.preprocess(
+      (value) => (typeof value === "string" && value ? value : undefined),
+      z.coerce.date().optional(),
+    ),
+    billingCycle: z.enum(["monthly", "quarterly"], { error: "请选择结算方式" }),
+    orderDate: dateInput("下单日期"),
+    status: orderStatusSchema,
+    remark: optionalText,
+  })
+  .refine((data) => !data.endDate || data.endDate >= data.startDate, { error: "结束日期不能早于开始日期", path: ["endDate"] });
+
+// 编辑时客户不可修改，其余表头字段管理员可改。
+export const orderUpdateSchema = customerOrderSchema.omit({ customerId: true });
 
 export const supplierOrderSchema = z.object({
   supplierId: requiredId("供应商"),
@@ -49,6 +61,10 @@ export function nextOrderNo(date: Date, existingNos: string[]): string {
 }
 
 const orderItemRowSchema = z.object({
+  itemId: z.preprocess(
+    (value) => (typeof value === "string" && value.trim() ? value.trim() : undefined),
+    z.string().optional(),
+  ),
   packageId: requiredId("套餐"),
   quantity: z.coerce
     .number({ error: "数量必须是数字" })
@@ -70,14 +86,15 @@ export type OrderItemInput = z.infer<typeof orderItemRowSchema>;
  */
 export function parseOrderItems(formData: FormData): { ok: true; items: OrderItemInput[] } | { ok: false; error: string } {
   const packageIds = formData.getAll("itemPackageId").map(String);
+  const itemIds = formData.getAll("itemId").map(String);
   const quantities = formData.getAll("itemQuantity").map(String);
   const plannedDates = formData.getAll("itemPlannedEntryDate").map(String);
   const remarks = formData.getAll("itemRemark").map(String);
-  const rowCount = Math.max(packageIds.length, quantities.length, plannedDates.length, remarks.length);
+  const rowCount = Math.max(packageIds.length, itemIds.length, quantities.length, plannedDates.length, remarks.length);
 
   const items: OrderItemInput[] = [];
   for (let index = 0; index < rowCount; index += 1) {
-    const row = { packageId: packageIds[index] ?? "", quantity: quantities[index] ?? "", plannedEntryDate: plannedDates[index] ?? "", remark: remarks[index] ?? "" };
+    const row = { itemId: itemIds[index] ?? "", packageId: packageIds[index] ?? "", quantity: quantities[index] ?? "", plannedEntryDate: plannedDates[index] ?? "", remark: remarks[index] ?? "" };
     if (!row.packageId && !row.quantity) continue; // 整行留空，跳过
     const parsed = orderItemRowSchema.safeParse(row);
     if (!parsed.success) {
@@ -116,9 +133,14 @@ export function defaultEndDate(startDate: Date): Date {
 
 export const orderStatusLabel: Record<z.infer<typeof orderStatusSchema>, string> = {
   draft: "草稿",
-  confirmed: "已确认",
-  completed: "已完成",
+  confirmed: "履约中",
+  completed: "已结束",
   cancelled: "已取消",
+};
+
+export const billingCycleLabel: Record<"monthly" | "quarterly", string> = {
+  monthly: "按月结算",
+  quarterly: "按自然季度结算",
 };
 
 export function firstError(error: z.ZodError) {

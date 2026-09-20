@@ -11,16 +11,27 @@ function formDataOf(entries: Record<string, string[]>) {
 
 describe("TASK 04 order validation", () => {
   it("accepts a valid customer order header without an orderNo field", () => {
-    const result = customerOrderSchema.safeParse({ orderNo: "IGNORED-0001", customerId: "c1", locationId: "l1", customerContractId: "ct1", orderDate: "2026-09-16", status: "draft", remark: "" });
+    const result = customerOrderSchema.safeParse({ orderNo: "IGNORED-0001", customerId: "c1", supplierId: "s1", installationAddress: "上海市浦东新区张江高科技园区", startDate: "2026-10-01", orderDate: "2026-09-16", billingCycle: "monthly", status: "draft", remark: "" });
     expect(result.success).toBe(true);
     if (result.success) expect(result.data).not.toHaveProperty("orderNo");
   });
 
-  it("requires location, contract and order date on customer orders", () => {
-    const base = { customerId: "c1", locationId: "l1", customerContractId: "ct1", orderDate: "2026-09-16", status: "draft", remark: "" };
-    expect(customerOrderSchema.safeParse({ ...base, locationId: "" }).success).toBe(false);
-    expect(customerOrderSchema.safeParse({ ...base, customerContractId: "" }).success).toBe(false);
-    expect(customerOrderSchema.safeParse({ ...base, orderDate: "" }).success).toBe(false);
+  it("requires supplier, installation address, start date and a valid billing cycle", () => {
+    const base = { customerId: "c1", supplierId: "s1", installationAddress: "上海市浦东新区张江高科技园区", startDate: "2026-10-01", orderDate: "2026-09-16", billingCycle: "monthly", status: "draft", remark: "" };
+    expect(customerOrderSchema.safeParse({ ...base, supplierId: "" }).success).toBe(false);
+    expect(customerOrderSchema.safeParse({ ...base, installationAddress: "" }).success).toBe(false);
+    expect(customerOrderSchema.safeParse({ ...base, installationAddress: "  " }).success).toBe(false);
+    expect(customerOrderSchema.safeParse({ ...base, startDate: "" }).success).toBe(false);
+    expect(customerOrderSchema.safeParse({ ...base, billingCycle: "yearly" }).success).toBe(false);
+  });
+
+  it("rejects an endDate earlier than startDate and accepts an omitted endDate", () => {
+    const base = { customerId: "c1", supplierId: "s1", installationAddress: "上海市浦东新区张江高科技园区", startDate: "2026-10-01", orderDate: "2026-09-16", billingCycle: "monthly", status: "draft", remark: "" };
+    const reversed = customerOrderSchema.safeParse({ ...base, endDate: "2026-09-30" });
+    expect(reversed.success).toBe(false);
+    if (!reversed.success) expect(reversed.error.issues[0]?.message).toBe("结束日期不能早于开始日期");
+    expect(customerOrderSchema.safeParse({ ...base, endDate: "2026-10-01" }).success).toBe(true);
+    expect(customerOrderSchema.safeParse(base).success).toBe(true);
   });
 
   it("accepts only valid order statuses", () => {
@@ -57,6 +68,29 @@ describe("TASK 04 order validation", () => {
       expect(result.items[0]).toMatchObject({ packageId: "p1", quantity: 2, plannedEntryDate: new Date("2026-10-01"), remark: "首批" });
       expect(result.items[1]).toMatchObject({ packageId: "p2", quantity: 1, plannedEntryDate: new Date("2026-10-15"), remark: null });
     }
+  });
+
+  it("preserves itemId per row when present and defaults it to undefined", () => {
+    const formData = formDataOf({
+      itemId: ["id-1", "id-2", ""],
+      itemPackageId: ["p1", "p2", "p3"],
+      itemQuantity: ["2", "1", "1"],
+      itemPlannedEntryDate: ["2026-10-01", "2026-10-15", "2026-11-01"],
+      itemRemark: ["", "", ""],
+    });
+    const result = parseOrderItems(formData);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.items).toHaveLength(3);
+      expect(result.items[0]).toMatchObject({ itemId: "id-1", packageId: "p1" });
+      expect(result.items[1]).toMatchObject({ itemId: "id-2", packageId: "p2" });
+      expect(result.items[2]).toMatchObject({ packageId: "p3" });
+      expect(result.items[2].itemId).toBeUndefined();
+    }
+    // 旧调用没有 itemId 字段时照常工作
+    const legacy = parseOrderItems(formDataOf({ itemPackageId: ["p1"], itemQuantity: ["1"], itemPlannedEntryDate: ["2026-10-01"] }));
+    expect(legacy.ok).toBe(true);
+    if (legacy.ok) expect(legacy.items[0].itemId).toBeUndefined();
   });
 
   it("requires a planned entry date on every filled item row", () => {

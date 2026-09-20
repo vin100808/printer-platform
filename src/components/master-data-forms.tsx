@@ -29,9 +29,9 @@ export function Footer({ state, cancelHref, pending }: { state: FormState; cance
   return <div className="col-span-full mt-2 flex items-center justify-between border-t border-slate-200 pt-5"><div>{state.error ? <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{state.error}</p> : null}</div><div className="flex gap-3"><a className="rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700" href={cancelHref}>取消</a><button className="rounded-xl bg-slate-950 px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-50" disabled={pending} type="submit">{pending ? "保存中…" : "保存"}</button></div></div>;
 }
 
-export function FormShell({ action, cancelHref, children }: { action: Action; cancelHref: string; children: React.ReactNode }) {
+export function FormShell({ action, cancelHref, onSubmit, children }: { action: Action; cancelHref: string; onSubmit?: (event: React.FormEvent<HTMLFormElement>) => void; children: React.ReactNode }) {
   const [state, formAction, pending] = useActionState(action, {});
-  return <form action={formAction} className="mt-6 grid gap-5 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm md:grid-cols-2">{children}<Footer cancelHref={cancelHref} pending={pending} state={state} /></form>;
+  return <form action={formAction} className="mt-6 grid gap-5 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm md:grid-cols-2" onSubmit={onSubmit}>{children}<Footer cancelHref={cancelHref} pending={pending} state={state} /></form>;
 }
 
 export function CustomerForm({ action, value, cancelHref }: { action: Action; value?: CustomerValue; cancelHref: string }) {

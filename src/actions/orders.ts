@@ -7,18 +7,21 @@ import type { FormState } from "@/actions/master-data";
 import { requireAdmin } from "@/lib/auth";
 import { deleteAttachment, uploadOrderAttachment } from "@/lib/object-storage";
 import {
+  computeDepositAmount,
   customerOrderSchema,
+  defaultEndDate,
   firstError,
   nextOrderNo,
+  orderUpdateSchema,
   parseOrderItems,
   supplierOrderSchema,
   values,
 } from "@/lib/orders";
 import { prisma } from "@/lib/prisma";
 
-const customerOrderKeys = ["customerId", "locationId", "customerContractId", "orderDate", "status", "remark"];
+const customerOrderKeys = ["customerId", "supplierId", "installationAddress", "startDate", "endDate", "billingCycle", "orderDate", "status", "remark"];
 const supplierOrderKeys = ["supplierId", "supplierContractId", "orderDate", "status", "remark"];
-const orderUpdateKeys = ["orderDate", "status", "remark"];
+const orderUpdateKeys = ["supplierId", "installationAddress", "startDate", "endDate", "billingCycle", "orderDate", "status", "remark"];
 
 function isRedirect(error: unknown) {
   return (error as { digest?: string }).digest?.startsWith("NEXT_REDIRECT") ?? false;
@@ -44,16 +47,6 @@ async function nextOrderNumber() {
     prisma.supplierOrder.findMany({ select: { orderNo: true } }),
   ]);
   return nextOrderNo(new Date(), [...customerNos, ...supplierNos].map((row) => row.orderNo));
-}
-
-async function verifyCustomerRefs(input: { customerId: string; locationId: string; customerContractId: string }) {
-  const [location, contract] = await Promise.all([
-    prisma.location.findFirst({ where: { id: input.locationId, customerId: input.customerId }, select: { id: true } }),
-    prisma.customerFrameworkContract.findFirst({ where: { id: input.customerContractId, customers: { some: { id: input.customerId } } }, select: { id: true } }),
-  ]);
-  if (!location) return "部署地点不属于所选客户，请重新选择。";
-  if (!contract) return "所选客户框架合同未关联该客户，请重新选择。";
-  return null;
 }
 
 async function verifySupplierRefs(input: { supplierId: string; supplierContractId: string }) {
@@ -94,12 +87,16 @@ async function verifyDeployedGuard(oldItemsQuery: Promise<DeployedOldItem[]>, su
 
 export async function createCustomerOrder(_: FormState, formData: FormData): Promise<FormState> {
   await requireAdmin();
-  const parsed = customerOrderSchema.safeParse(values(formData, customerOrderKeys));
+  // 下单日期服务端取当天，不接受表单值。
+  const today = new Date();
+  const raw = values(formData, customerOrderKeys);
+  raw.orderDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+  const parsed = customerOrderSchema.safeParse(raw);
   if (!parsed.success) return { error: firstError(parsed.error) };
   const items = parseOrderItems(formData);
   if (!items.ok) return { error: items.error };
-  const refError = await verifyCustomerRefs(parsed.data);
-  if (refError) return { error: refError };
+  const supplier = await prisma.supplier.findFirst({ where: { id: parsed.data.supplierId }, select: { id: true } });
+  if (!supplier) return { error: "所选供应商不存在" };
   const packageIds = items.items.map((item) => item.packageId);
   const applicableCount = await prisma.customerPackage.count({
     where: { id: { in: packageIds }, OR: [{ customerId: null }, { customerId: parsed.data.customerId }] },
@@ -117,7 +114,16 @@ export async function createCustomerOrder(_: FormState, formData: FormData): Pro
     try {
       const item = await prisma.customerOrder.create({
         data: {
-          ...parsed.data,
+          customerId: parsed.data.customerId,
+          supplierId: parsed.data.supplierId,
+          installationAddress: parsed.data.installationAddress,
+          startDate: parsed.data.startDate,
+          endDate: parsed.data.endDate ?? defaultEndDate(parsed.data.startDate),
+          billingCycle: parsed.data.billingCycle,
+          orderDate: today,
+          status: parsed.data.status,
+          remark: parsed.data.remark,
+          depositAmount: computeDepositAmount(items.items.reduce((sum, entry) => sum + entry.quantity, 0)),
           orderNo: await nextOrderNumber(),
           orderAttachmentUrl: attachmentUrl,
           items: {
@@ -130,8 +136,8 @@ export async function createCustomerOrder(_: FormState, formData: FormData): Pro
           },
         },
       });
-      revalidatePath("/customer-orders");
-      redirect(`/customer-orders/${item.id}`);
+      revalidatePath("/orders");
+      redirect(`/orders/${item.id}`);
     } catch (error) {
       if (isRedirect(error)) throw error;
       // 并发下单撞唯一编号时，按最新当日序号重新取号重试。
@@ -146,43 +152,92 @@ export async function createCustomerOrder(_: FormState, formData: FormData): Pro
 
 export async function updateCustomerOrder(id: string, _: FormState, formData: FormData): Promise<FormState> {
   await requireAdmin();
-  const parsed = customerOrderSchema.pick({ orderDate: true, status: true, remark: true }).safeParse(values(formData, orderUpdateKeys));
+  const parsed = orderUpdateSchema.safeParse(values(formData, orderUpdateKeys));
   if (!parsed.success) return { error: firstError(parsed.error) };
   const items = parseOrderItems(formData);
   if (!items.ok) return { error: items.error };
-  const existing = await prisma.customerOrder.findUniqueOrThrow({ where: { id }, select: { customerId: true, orderAttachmentUrl: true } });
+  const [existing, existingItems] = await Promise.all([
+    prisma.customerOrder.findUniqueOrThrow({ where: { id }, select: { customerId: true, orderAttachmentUrl: true } }),
+    prisma.customerOrderItem.findMany({
+      where: { customerOrderId: id },
+      include: { printers: { select: { id: true, status: true } }, customerPackage: { select: { packageName: true } } },
+    }),
+  ]);
+  const existingById = new Map(existingItems.map((item) => [item.id, item]));
+  const submittedIds = new Set<string>();
+  for (const entry of items.items) {
+    if (!entry.itemId) continue;
+    const old = existingById.get(entry.itemId);
+    // a) 带 itemId 的行必须属于本订单
+    if (!old) return { error: "明细数据已过期，请刷新页面重试" };
+    submittedIds.add(entry.itemId);
+    // b) 已有打印机记录的行不能更换套餐
+    if (old.customerPackageId !== entry.packageId && old.printers.length > 0) {
+      return { error: `套餐「${old.customerPackage.packageName}」下已有打印机记录，不能更换套餐；如需变更请通过换机/撤机或新建订单处理。` };
+    }
+  }
+  // c) 被移除的行下仍有打印机记录时不能删除
+  for (const old of existingItems) {
+    if (submittedIds.has(old.id)) continue;
+    if (old.printers.length > 0) {
+      return { error: `不能删除套餐「${old.customerPackage.packageName}」所在明细行：其下仍有 ${old.printers.length} 台打印机记录。请先撤机或换机后再调整。` };
+    }
+  }
   const packageIds = items.items.map((item) => item.packageId);
   const applicableCount = await prisma.customerPackage.count({
     where: { id: { in: packageIds }, OR: [{ customerId: null }, { customerId: existing.customerId }] },
   });
   if (applicableCount !== new Set(packageIds).size) return { error: "明细包含不存在或不适用于该客户的套餐。" };
-  const deployedGuard = await verifyDeployedGuard(
-    prisma.customerOrderItem.findMany({
-      where: { customerOrderId: id },
-      select: { customerPackageId: true, customerPackage: { select: { packageName: true } }, printers: { where: { status: "active" }, select: { id: true } } },
-    }),
-    items.items,
-  );
-  if (deployedGuard) return { error: deployedGuard };
+
+  const removedIds = existingItems.filter((item) => !submittedIds.has(item.id)).map((item) => item.id);
+  const totalQuantity = items.items.reduce((sum, entry) => sum + entry.quantity, 0);
 
   let newUrl: string | null = null;
   try {
     const file = attachmentFrom(formData);
     if (file) newUrl = await uploadOrderAttachment(file, "customer");
-    // 明细整体替换：先删后建，与表头更新同事务。
+    // 按行 diff 更新：表头 + 删除被移除行 + 逐行更新保留行 + 新建无 itemId 的行，同事务。
     await prisma.$transaction([
-      prisma.customerOrderItem.deleteMany({ where: { customerOrderId: id } }),
-      prisma.customerOrder.update({ where: { id }, data: { ...parsed.data, orderAttachmentUrl: newUrl ?? existing.orderAttachmentUrl } }),
-      ...items.items.map((entry) =>
-        prisma.customerOrderItem.create({
-          data: { customerOrderId: id, customerPackageId: entry.packageId, quantity: entry.quantity, plannedEntryDate: entry.plannedEntryDate, remark: entry.remark },
-        }),
+      prisma.customerOrder.update({
+        where: { id },
+        data: {
+          supplierId: parsed.data.supplierId,
+          installationAddress: parsed.data.installationAddress,
+          startDate: parsed.data.startDate,
+          endDate: parsed.data.endDate ?? defaultEndDate(parsed.data.startDate),
+          billingCycle: parsed.data.billingCycle,
+          orderDate: parsed.data.orderDate,
+          status: parsed.data.status,
+          remark: parsed.data.remark,
+          depositAmount: computeDepositAmount(totalQuantity),
+          orderAttachmentUrl: newUrl ?? existing.orderAttachmentUrl,
+        },
+      }),
+      ...(removedIds.length ? [prisma.customerOrderItem.deleteMany({ where: { id: { in: removedIds }, customerOrderId: id } })] : []),
+      ...items.items.flatMap((entry) =>
+        entry.itemId
+          ? [
+              prisma.customerOrderItem.update({
+                where: { id: entry.itemId },
+                data: { customerPackageId: entry.packageId, quantity: entry.quantity, plannedEntryDate: entry.plannedEntryDate, remark: entry.remark },
+              }),
+            ]
+          : [],
+      ),
+      ...items.items.flatMap((entry) =>
+        entry.itemId
+          ? []
+          : [
+              prisma.customerOrderItem.create({
+                data: { customerOrderId: id, customerPackageId: entry.packageId, quantity: entry.quantity, plannedEntryDate: entry.plannedEntryDate, remark: entry.remark },
+              }),
+            ],
       ),
     ]);
     if (newUrl) await deleteAttachment(existing.orderAttachmentUrl);
-    revalidatePath("/customer-orders");
-    revalidatePath(`/customer-orders/${id}`);
-    redirect(`/customer-orders/${id}`);
+    revalidatePath("/orders");
+    revalidatePath(`/orders/${id}`);
+    redirect(`/orders/${id}`);
   } catch (error) {
     if (isRedirect(error)) throw error;
     await deleteAttachment(newUrl);
@@ -193,11 +248,11 @@ export async function updateCustomerOrder(id: string, _: FormState, formData: Fo
 export async function deleteCustomerOrder(id: string) {
   await requireAdmin();
   const printerCount = await prisma.printer.count({ where: { customerOrderItem: { customerOrderId: id } } });
-  if (printerCount > 0) redirect(`/customer-orders/${id}?error=${encodeURIComponent("该订单已有打印机台账记录，无法删除。")}`);
+  if (printerCount > 0) redirect(`/orders/${id}?error=${encodeURIComponent("该订单已有打印机台账记录，无法删除。")}`);
   const item = await prisma.customerOrder.delete({ where: { id } });
   await deleteAttachment(item.orderAttachmentUrl);
-  revalidatePath("/customer-orders");
-  redirect("/customer-orders");
+  revalidatePath("/orders");
+  redirect("/orders");
 }
 
 export async function createSupplierOrder(_: FormState, formData: FormData): Promise<FormState> {

@@ -63,7 +63,7 @@ export async function createPrinter(_: FormState, formData: FormData): Promise<F
       data: { ...parsed.data, status: "active", qrToken: newQrToken() },
     });
     revalidatePath("/printers");
-    revalidatePath("/customer-orders");
+    revalidatePath("/orders");
     revalidatePath("/supplier-orders");
     redirect(`/printers/${item.id}`);
   } catch (error) {
@@ -85,7 +85,7 @@ export async function updatePrinter(id: string, _: FormState, formData: FormData
     await prisma.printer.update({ where: { id }, data: parsed.data });
     revalidatePath("/printers");
     revalidatePath(`/printers/${id}`);
-    revalidatePath("/customer-orders");
+    revalidatePath("/orders");
     revalidatePath("/supplier-orders");
     redirect(`/printers/${id}`);
   } catch (error) {
@@ -142,7 +142,7 @@ export async function replacePrinter(oldId: string, _: FormState, formData: Form
     });
     revalidatePath("/printers");
     revalidatePath(`/printers/${oldId}`);
-    revalidatePath("/customer-orders");
+    revalidatePath("/orders");
     revalidatePath("/supplier-orders");
     redirect(`/printers/${created.id}`);
   } catch (error) {
@@ -163,7 +163,7 @@ export async function removePrinter(id: string, _: FormState, formData: FormData
   await prisma.printer.update({ where: { id }, data: { status: "removed", exitDate: parsed.data.exitDate } });
   revalidatePath("/printers");
   revalidatePath(`/printers/${id}`);
-  revalidatePath("/customer-orders");
+  revalidatePath("/orders");
   revalidatePath("/supplier-orders");
   redirect(`/printers/${id}`);
 }
@@ -175,7 +175,7 @@ export async function deletePrinter(id: string) {
   if (item.status === "replaced" || item.status === "removed") redirect(`/printers/${id}?error=history-protected`);
   await prisma.printer.delete({ where: { id } });
   revalidatePath("/printers");
-  revalidatePath("/customer-orders");
+  revalidatePath("/orders");
   revalidatePath("/supplier-orders");
   redirect("/printers");
 }
