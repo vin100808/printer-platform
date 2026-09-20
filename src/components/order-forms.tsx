@@ -38,8 +38,8 @@ function OrderStatusSelect({ defaultValue = "draft" }: { defaultValue?: string }
   return <label className="block text-sm font-medium text-slate-700"><span className="mb-2 block">订单状态 *</span><select className={input} defaultValue={defaultValue} name="status">{statusOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>;
 }
 
-function AttachmentField({ currentUrl }: { currentUrl?: string | null }) {
-  return <label className="col-span-full block text-sm font-medium text-slate-700"><span className="mb-2 block">订单附件（PDF、Word、JPG、PNG，最大 10MB）</span><input accept=".pdf,.doc,.docx,.jpg,.jpeg,.png" className={input} name="attachment" type="file" />{currentUrl ? <a className="mt-2 inline-block text-sm font-medium text-blue-700" href={currentUrl} target="_blank">打开当前附件</a> : null}</label>;
+function AttachmentField({ currentUrl, name = "attachment", label }: { currentUrl?: string | null; name?: string; label?: string }) {
+  return <label className="col-span-full block text-sm font-medium text-slate-700"><span className="mb-2 block">{label ?? "订单附件（PDF、Word、JPG、PNG，最大 10MB）"}</span><input accept=".pdf,.doc,.docx,.jpg,.jpeg,.png" className={input} name={name} type="file" />{currentUrl ? <a className="mt-2 inline-block text-sm font-medium text-blue-700" href={currentUrl} target="_blank">打开当前附件</a> : null}</label>;
 }
 
 export type ItemRowValue = { id?: string; deployed?: number; packageId: string; quantity: string; plannedEntryDate: string; remark: string | null };
@@ -108,6 +108,7 @@ export function CustomerOrderForm({ action, parties, suppliers, packages, cancel
     <BillingCycleSelect />
     <OrderStatusSelect />
     <ItemRows emptyHint="暂无可选套餐，请先到「客户套餐」新增。" packages={availablePackages.map((pkg) => ({ id: pkg.id, label: pkg.label }))} />
+    <AttachmentField label="合同文件（PDF、Word、JPG、PNG，最大 10MB；与订单附件同文件时只传本项即可）" name="contractAttachment" />
     <AttachmentField />
     <label className="col-span-full block text-sm font-medium text-slate-700"><span className="mb-2 block">备注</span><textarea className={area} name="remark" /></label>
   </FormShell>;
@@ -136,6 +137,8 @@ type CustomerOrderEditValue = EditValue & {
   startDate: string;
   endDate: string;
   billingCycle: string;
+  contractAttachmentUrl?: string | null;
+  depositReceivedDate: string;
 };
 
 export function CustomerOrderEditForm({ action, value, packages, initialRows, deployedByItem, cancelHref }: { action: Action; value: CustomerOrderEditValue; packages: { id: string; label: string }[]; initialRows: ItemRowValue[]; deployedByItem: Record<string, number>; cancelHref: string }) {
@@ -160,7 +163,10 @@ export function CustomerOrderEditForm({ action, value, packages, initialRows, de
     <BillingCycleSelect defaultValue={value.billingCycle} />
     <Field defaultValue={value.orderDate} label="下单日期" name="orderDate" required type="date" /><OrderStatusSelect defaultValue={value.status} />
     <ItemRows emptyHint="暂无可选套餐，请先到「客户套餐」新增。" initialRows={initialRows} packages={packages} />
+    <AttachmentField currentUrl={value.contractAttachmentUrl} label="合同文件（重新上传即替换，历史文件将被删除）" name="contractAttachment" />
     <AttachmentField currentUrl={value.attachmentUrl} />
+    <Field defaultValue={value.depositReceivedDate} label="押金收款日期" name="depositReceivedDate" type="date" />
+    <p className="col-span-full -mt-3 text-xs text-slate-400">押金应收 = 明细总台数 × ¥2000，保存时自动计算；填写收款日期即代表已全额收到押金，留空为未收。</p>
     <label className="col-span-full block text-sm font-medium text-slate-700"><span className="mb-2 block">备注</span><textarea className={area} defaultValue={value.remark ?? ""} name="remark" /></label>
   </FormShell>;
 }

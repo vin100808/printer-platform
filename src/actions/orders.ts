@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import type { FormState } from "@/actions/master-data";
 import { requireAdmin } from "@/lib/auth";
-import { deleteAttachment, uploadOrderAttachment } from "@/lib/object-storage";
+import { deleteAttachment, uploadContractAttachment, uploadOrderAttachment } from "@/lib/object-storage";
 import {
   computeDepositAmount,
   customerOrderSchema,
@@ -19,9 +19,9 @@ import {
 } from "@/lib/orders";
 import { prisma } from "@/lib/prisma";
 
-const customerOrderKeys = ["customerId", "supplierId", "installationAddress", "startDate", "endDate", "billingCycle", "orderDate", "status", "remark"];
+const customerOrderKeys = ["customerId", "supplierId", "installationAddress", "startDate", "endDate", "billingCycle", "orderDate", "status", "depositReceivedDate", "remark"];
 const supplierOrderKeys = ["supplierId", "supplierContractId", "orderDate", "status", "remark"];
-const orderUpdateKeys = ["supplierId", "installationAddress", "startDate", "endDate", "billingCycle", "orderDate", "status", "remark"];
+const orderUpdateKeys = ["supplierId", "installationAddress", "startDate", "endDate", "billingCycle", "orderDate", "status", "depositReceivedDate", "remark"];
 
 function isRedirect(error: unknown) {
   return (error as { digest?: string }).digest?.startsWith("NEXT_REDIRECT") ?? false;
@@ -55,8 +55,8 @@ async function verifySupplierRefs(input: { supplierId: string; supplierContractI
   return null;
 }
 
-function attachmentFrom(formData: FormData) {
-  const file = formData.get("attachment");
+function attachmentFrom(formData: FormData, name = "attachment") {
+  const file = formData.get(name);
   return file instanceof File && file.size ? file : null;
 }
 
@@ -104,10 +104,14 @@ export async function createCustomerOrder(_: FormState, formData: FormData): Pro
   if (applicableCount !== new Set(packageIds).size) return { error: "明细包含不存在或不适用于该客户的套餐。" };
 
   let attachmentUrl: string | null = null;
+  let contractUrl: string | null = null;
   try {
     const file = attachmentFrom(formData);
     if (file) attachmentUrl = await uploadOrderAttachment(file, "customer");
+    const contractFile = attachmentFrom(formData, "contractAttachment");
+    if (contractFile) contractUrl = await uploadContractAttachment(contractFile, "customer");
   } catch (error) {
+    await Promise.all([deleteAttachment(attachmentUrl), deleteAttachment(contractUrl)]);
     return { error: attachmentError(error) };
   }
   for (let attempt = 0; attempt < 3; attempt += 1) {
@@ -122,10 +126,12 @@ export async function createCustomerOrder(_: FormState, formData: FormData): Pro
           billingCycle: parsed.data.billingCycle,
           orderDate: today,
           status: parsed.data.status,
+          depositReceivedDate: parsed.data.depositReceivedDate,
           remark: parsed.data.remark,
           depositAmount: computeDepositAmount(items.items.reduce((sum, entry) => sum + entry.quantity, 0)),
           orderNo: await nextOrderNumber(),
           orderAttachmentUrl: attachmentUrl,
+          contractAttachmentUrl: contractUrl,
           items: {
             create: items.items.map((entry) => ({
               customerPackageId: entry.packageId,
@@ -142,11 +148,11 @@ export async function createCustomerOrder(_: FormState, formData: FormData): Pro
       if (isRedirect(error)) throw error;
       // 并发下单撞唯一编号时，按最新当日序号重新取号重试。
       if (isUniqueConflict(error) && attempt < 2) continue;
-      await deleteAttachment(attachmentUrl);
+      await Promise.all([deleteAttachment(attachmentUrl), deleteAttachment(contractUrl)]);
       return { error: attachmentError(error) };
     }
   }
-  await deleteAttachment(attachmentUrl);
+  await Promise.all([deleteAttachment(attachmentUrl), deleteAttachment(contractUrl)]);
   return { error: "保存失败，请稍后重试。" };
 }
 
@@ -157,7 +163,7 @@ export async function updateCustomerOrder(id: string, _: FormState, formData: Fo
   const items = parseOrderItems(formData);
   if (!items.ok) return { error: items.error };
   const [existing, existingItems] = await Promise.all([
-    prisma.customerOrder.findUniqueOrThrow({ where: { id }, select: { customerId: true, orderAttachmentUrl: true } }),
+    prisma.customerOrder.findUniqueOrThrow({ where: { id }, select: { customerId: true, orderAttachmentUrl: true, contractAttachmentUrl: true } }),
     prisma.customerOrderItem.findMany({
       where: { customerOrderId: id },
       include: { printers: { select: { id: true, status: true } }, customerPackage: { select: { packageName: true } } },
@@ -193,9 +199,12 @@ export async function updateCustomerOrder(id: string, _: FormState, formData: Fo
   const totalQuantity = items.items.reduce((sum, entry) => sum + entry.quantity, 0);
 
   let newUrl: string | null = null;
+  let newContractUrl: string | null = null;
   try {
     const file = attachmentFrom(formData);
     if (file) newUrl = await uploadOrderAttachment(file, "customer");
+    const contractFile = attachmentFrom(formData, "contractAttachment");
+    if (contractFile) newContractUrl = await uploadContractAttachment(contractFile, "customer");
     // 按行 diff 更新：表头 + 删除被移除行 + 逐行更新保留行 + 新建无 itemId 的行，同事务。
     await prisma.$transaction([
       prisma.customerOrder.update({
@@ -208,9 +217,11 @@ export async function updateCustomerOrder(id: string, _: FormState, formData: Fo
           billingCycle: parsed.data.billingCycle,
           orderDate: parsed.data.orderDate,
           status: parsed.data.status,
+          depositReceivedDate: parsed.data.depositReceivedDate,
           remark: parsed.data.remark,
           depositAmount: computeDepositAmount(totalQuantity),
           orderAttachmentUrl: newUrl ?? existing.orderAttachmentUrl,
+          contractAttachmentUrl: newContractUrl ?? existing.contractAttachmentUrl,
         },
       }),
       ...(removedIds.length ? [prisma.customerOrderItem.deleteMany({ where: { id: { in: removedIds }, customerOrderId: id } })] : []),
@@ -235,12 +246,13 @@ export async function updateCustomerOrder(id: string, _: FormState, formData: Fo
       ),
     ]);
     if (newUrl) await deleteAttachment(existing.orderAttachmentUrl);
+    if (newContractUrl) await deleteAttachment(existing.contractAttachmentUrl);
     revalidatePath("/orders");
     revalidatePath(`/orders/${id}`);
     redirect(`/orders/${id}`);
   } catch (error) {
     if (isRedirect(error)) throw error;
-    await deleteAttachment(newUrl);
+    await Promise.all([deleteAttachment(newUrl), deleteAttachment(newContractUrl)]);
     return { error: attachmentError(error) };
   }
 }
@@ -250,9 +262,24 @@ export async function deleteCustomerOrder(id: string) {
   const printerCount = await prisma.printer.count({ where: { customerOrderItem: { customerOrderId: id } } });
   if (printerCount > 0) redirect(`/orders/${id}?error=${encodeURIComponent("该订单已有打印机台账记录，无法删除。")}`);
   const item = await prisma.customerOrder.delete({ where: { id } });
-  await deleteAttachment(item.orderAttachmentUrl);
+  await Promise.all([deleteAttachment(item.orderAttachmentUrl), deleteAttachment(item.contractAttachmentUrl)]);
   revalidatePath("/orders");
   redirect("/orders");
+}
+
+// 结束订单：只把订单状态改为「已结束」，不触碰 Printer / MeterReading / 附件 / 任何历史数据。
+// 仍有运行中打印机时由前端弹风险提示，管理员确认后继续（管理员保留最终操作权）。
+export async function completeCustomerOrder(id: string) {
+  await requireAdmin();
+  const order = await prisma.customerOrder.findUnique({ where: { id }, select: { status: true } });
+  if (!order) redirect("/orders");
+  if (order.status === "cancelled") redirect(`/orders/${id}?error=${encodeURIComponent("已取消的订单不能改为已结束。")}`);
+  if (order.status !== "completed") {
+    await prisma.customerOrder.update({ where: { id }, data: { status: "completed" } });
+  }
+  revalidatePath("/orders");
+  revalidatePath(`/orders/${id}`);
+  redirect(`/orders/${id}?completed=1`);
 }
 
 export async function createSupplierOrder(_: FormState, formData: FormData): Promise<FormState> {

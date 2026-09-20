@@ -61,6 +61,8 @@ export default async function EditCustomerOrderPage({ params }: PageProps<"/orde
         orderDate: formatDateInput(order.orderDate),
         status: order.status,
         attachmentUrl: order.orderAttachmentUrl,
+        contractAttachmentUrl: order.contractAttachmentUrl,
+        depositReceivedDate: formatDateInput(order.depositReceivedDate),
         remark: order.remark,
       }}
     />

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { activeDaysInMonth, computeSettlement, computeSettlementOptionalSupplier, computeSettlementSide, daysInMonth } from "@/lib/settlement";
+import { activeDaysInMonth, computeSettlement, computeSettlementOptionalSupplier, computeSettlementSide, daysInMonth, summarizeOrderSettlements } from "@/lib/settlement";
 
 const d = (s: string) => new Date(`${s}T00:00:00.000Z`);
 
@@ -116,5 +116,73 @@ describe("computeSettlementOptionalSupplier", () => {
 
   it("当月不在场仍返回 null", () => {
     expect(computeSettlementOptionalSupplier({ ...base, supplierPackage: null, entryDate: d("2026-10-01") })).toBeNull();
+  });
+});
+
+describe("summarizeOrderSettlements", () => {
+  const terms = { monthlyRent: "450", monthlyFreeBwEquivalent: "10000", overageRateBwEquivalent: "0.03" };
+  const supplierTerms = { monthlyRent: "400", monthlyFreeBwEquivalent: "16000", overageRateBwEquivalent: "0.03" };
+  const printerResult = (overrides: Partial<Parameters<typeof computeSettlementOptionalSupplier>[0]>) =>
+    computeSettlementOptionalSupplier({
+      year: 2026,
+      month: 9,
+      entryDate: d("2026-09-20"),
+      exitDate: null,
+      bwUsage: 8000,
+      colorUsage: 300,
+      bwEquivalentUsage: 11000,
+      customerPackage: terms,
+      supplierPackage: supplierTerms,
+      ...overrides,
+    });
+
+  it("空结果返回 null", () => {
+    expect(summarizeOrderSettlements([])).toBeNull();
+  });
+
+  it("取最近业务月份并汇总双侧金额与毛利", () => {
+    const older = printerResult({ year: 2026, month: 8, entryDate: d("2026-08-10"), bwUsage: 5000, colorUsage: 0, bwEquivalentUsage: 5000 });
+    const a = printerResult({});
+    const b = printerResult({});
+    if (!older || !a || !b) throw new Error("不应为 null");
+    const summary = summarizeOrderSettlements([older, a, b]);
+    if (!summary) throw new Error("不应为 null");
+    expect(summary.year).toBe(2026);
+    expect(summary.month).toBe(9);
+    expect(summary.printerCount).toBe(2);
+    expect(summary.customerAmount.toString()).toBe("770"); // 385 × 2
+    expect(summary.supplierAmount?.toString()).toBe("601.34"); // 300.67 × 2
+    expect(summary.operatingGrossProfit?.toString()).toBe("168.66");
+  });
+
+  it("跨月取最新：8 月更早的结果不参与汇总", () => {
+    const latest = printerResult({});
+    const stale = printerResult({ year: 2026, month: 8, entryDate: d("2026-08-10") });
+    if (!latest || !stale) throw new Error("不应为 null");
+    const summary = summarizeOrderSettlements([latest, stale]);
+    if (!summary) throw new Error("不应为 null");
+    expect(summary.month).toBe(9);
+    expect(summary.printerCount).toBe(1);
+    expect(summary.customerAmount.toString()).toBe("385");
+  });
+
+  it("任一打印机缺供应商侧价格时：客户侧照常汇总，应付与毛利为 null", () => {
+    const full = printerResult({});
+    const withoutSupplier = printerResult({ supplierPackage: null });
+    if (!full || !withoutSupplier) throw new Error("不应为 null");
+    const summary = summarizeOrderSettlements([full, withoutSupplier]);
+    if (!summary) throw new Error("不应为 null");
+    expect(summary.customerAmount.toString()).toBe("770");
+    expect(summary.supplierAmount).toBeNull();
+    expect(summary.operatingGrossProfit).toBeNull();
+  });
+
+  it("金额四舍五入：非整除月租逐台计算后汇总", () => {
+    const odd = printerResult({ bwUsage: 0, colorUsage: 0, bwEquivalentUsage: 0 }); // 只有折算月租 165
+    const even = printerResult({});
+    if (!odd || !even) throw new Error("不应为 null");
+    const summary = summarizeOrderSettlements([odd, even]);
+    if (!summary) throw new Error("不应为 null");
+    expect(summary.customerAmount.toString()).toBe("550"); // 165 + 385
   });
 });

@@ -112,6 +112,42 @@ export function computeSettlementOptionalSupplier(
   };
 }
 
+export interface OrderSettlementSummary {
+  year: number;
+  month: number;
+  /** 参与该月汇总的打印机台数 */
+  printerCount: number;
+  customerAmount: Decimal;
+  /** 任一打印机缺供应商侧价格时为 null（不可汇总应付与毛利） */
+  supplierAmount: Decimal | null;
+  operatingGrossProfit: Decimal | null;
+}
+
+/**
+ * 订单结算摘要：取各打印机结算结果中最近的一个业务月份，汇总该月各打印机的金额。
+ * 无有效结果（全部当月不在场或无抄表）返回 null；供应商侧缺失的打印机不阻塞客户侧合计。
+ */
+export function summarizeOrderSettlements(results: OptionalSupplierSettlementResult[]): OrderSettlementSummary | null {
+  if (!results.length) return null;
+  const latest = results.reduce(
+    (acc, result) => (result.year > acc.year || (result.year === acc.year && result.month > acc.month) ? { year: result.year, month: result.month } : acc),
+    { year: results[0].year, month: results[0].month },
+  );
+  const inMonth = results.filter((result) => result.year === latest.year && result.month === latest.month);
+  const customerAmount = money2(inMonth.reduce((sum, result) => sum.add(result.customer.monthlyAmount), new Decimal(0)));
+  const supplierAmount = inMonth.every((result) => result.supplier)
+    ? money2(inMonth.reduce((sum, result) => sum.add(result.supplier!.monthlyAmount), new Decimal(0)))
+    : null;
+  return {
+    year: latest.year,
+    month: latest.month,
+    printerCount: inMonth.length,
+    customerAmount,
+    supplierAmount,
+    operatingGrossProfit: supplierAmount ? money2(customerAmount.sub(supplierAmount)) : null,
+  };
+}
+
 /** 整月结算：当月不在场（0 天）返回 null，不产生金额。 */
 export function computeSettlement(input: SettlementInput): SettlementResult | null {
   const activeDays = activeDaysInMonth(input.year, input.month, input.entryDate, input.exitDate);

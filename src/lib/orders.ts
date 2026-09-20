@@ -30,6 +30,10 @@ export const customerOrderSchema = z
     billingCycle: z.enum(["monthly", "quarterly"], { error: "请选择结算方式" }),
     orderDate: dateInput("下单日期"),
     status: orderStatusSchema,
+    depositReceivedDate: z.preprocess(
+      (value) => (typeof value === "string" && value ? value : null),
+      z.coerce.date({ error: "押金收款日期格式不正确" }).nullable(),
+    ),
     remark: optionalText,
   })
   .refine((data) => !data.endDate || data.endDate >= data.startDate, { error: "结束日期不能早于开始日期", path: ["endDate"] });
