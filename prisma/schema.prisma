@@ -338,7 +338,7 @@ model SupplierOrderItem {
 model Printer {
   id                  String             @id @default(cuid())
   printerCode         String             @map("printer_code")
-  supplierAssetCode   String             @map("supplier_asset_code")
+  supplierAssetCode   String?            @map("supplier_asset_code")
   machineModelId      String             @map("machine_model_id")
   customerOrderItemId String             @map("customer_order_item_id")
   supplierOrderItemId String?            @map("supplier_order_item_id")

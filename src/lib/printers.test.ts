@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { deviceTypeLabel, firstError, hasDeploymentCapacity, isBeforeDay, canChangeLifecycle, newQrToken, printerRemoveSchema, printerReplaceSchema, printerSchema, printerStatusLabel, printerUpdateSchema } from "@/lib/printers";
+import { deviceTypeLabel, firstError, hasDeploymentCapacity, isBeforeDay, canChangeLifecycle, newQrToken, printerRemoveSchema, printerReplaceSchema, printerSchema, printerStatusLabel, printerUpdateSchema, resolvePrinterCode } from "@/lib/printers";
 
 const validInput = {
   printerCode: "PRN-001",
@@ -24,20 +24,23 @@ describe("printerSchema", () => {
     }
   });
 
-  it("拒绝空打印机编码", () => {
+  it("打印机编码留空时解析为 null（由服务端按规则生成）", () => {
     const parsed = printerSchema.safeParse({ ...validInput, printerCode: "  " });
-    expect(parsed.success).toBe(false);
-    if (!parsed.success) expect(firstError(parsed.error)).toBe("请输入打印机编码");
+    expect(parsed.success).toBe(true);
+    if (parsed.success) expect(parsed.data.printerCode).toBeNull();
   });
 
-  it("拒绝空供应商资产编码", () => {
-    const parsed = printerSchema.safeParse({ ...validInput, supplierAssetCode: "" });
-    expect(parsed.success).toBe(false);
-    if (!parsed.success) expect(firstError(parsed.error)).toBe("请输入供应商资产编码");
+  it("供应商资产编码与供应商订单明细均可空（TASK 15 新流程）", () => {
+    const parsed = printerSchema.safeParse({ ...validInput, printerCode: "", supplierAssetCode: "", supplierOrderItemId: "" });
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.supplierAssetCode).toBeNull();
+      expect(parsed.data.supplierOrderItemId).toBeNull();
+    }
   });
 
-  it("拒绝未选择的订单明细与机型", () => {
-    const parsed = printerSchema.safeParse({ ...validInput, machineModelId: "", customerOrderItemId: "", supplierOrderItemId: "" });
+  it("拒绝未选择的客户订单明细与机型", () => {
+    const parsed = printerSchema.safeParse({ ...validInput, machineModelId: "", customerOrderItemId: "" });
     expect(parsed.success).toBe(false);
     if (!parsed.success) expect(firstError(parsed.error)).toBe("请选择机型");
   });
@@ -111,17 +114,36 @@ describe("printerReplaceSchema", () => {
     expect(printerReplaceSchema.safeParse(validReplace).success).toBe(true);
   });
 
-  it("换机需要重新填写编码、机型与供应商明细", () => {
-    for (const key of ["printerCode", "supplierAssetCode", "machineModelId", "supplierOrderItemId"] as const) {
-      const parsed = printerReplaceSchema.safeParse({ ...validReplace, [key]: "" });
-      expect(parsed.success).toBe(false);
+  it("换机只需新机型与换机日期；编码、资产编码、供应商明细均可留空", () => {
+    const parsed = printerReplaceSchema.safeParse({ ...validReplace, printerCode: "", supplierAssetCode: "", supplierOrderItemId: "" });
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.printerCode).toBeNull();
+      expect(parsed.data.supplierOrderItemId).toBeNull();
     }
+    const noModel = printerReplaceSchema.safeParse({ ...validReplace, machineModelId: "" });
+    expect(noModel.success).toBe(false);
   });
 
   it("拒绝缺失换机日期", () => {
     const parsed = printerReplaceSchema.safeParse({ ...validReplace, replaceDate: "" });
     expect(parsed.success).toBe(false);
     if (!parsed.success) expect(firstError(parsed.error)).toBe("请选择换机日期");
+  });
+});
+
+describe("resolvePrinterCode", () => {
+  it("手填编码优先", () => {
+    expect(resolvePrinterCode({ printerCode: "PRN-9", supplierAssetCode: "SA-1" }, [])).toEqual({ code: "PRN-9", systemGenerated: false });
+  });
+
+  it("编码留空时使用供应商资产编码", () => {
+    expect(resolvePrinterCode({ printerCode: null, supplierAssetCode: "SA-1" }, [])).toEqual({ code: "SA-1", systemGenerated: false });
+  });
+
+  it("都留空时系统生成 P 序列，且与现有编码错开", () => {
+    expect(resolvePrinterCode({ printerCode: null, supplierAssetCode: null }, [])).toEqual({ code: "P0001", systemGenerated: true });
+    expect(resolvePrinterCode({ printerCode: null, supplierAssetCode: null }, ["P0001", "P0007", "PRN-9"])).toEqual({ code: "P0008", systemGenerated: true });
   });
 });
 

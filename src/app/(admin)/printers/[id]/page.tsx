@@ -47,7 +47,7 @@ export default async function PrinterDetailPage({ params, searchParams }: PagePr
         supplierPackage: printer.supplierOrderItem?.supplierPackage ?? null,
       })
     : null;
-  return <div className="mx-auto max-w-7xl"><PageHeader description={`资产编码 ${printer.supplierAssetCode}`} title={`打印机 · ${printer.printerCode}`} />
+  return <div className="mx-auto max-w-7xl"><PageHeader description={`资产编码 ${printer.supplierAssetCode ?? "—"}`} title={`打印机 · ${printer.printerCode}`} />
     {error ? <p className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p> : null}
     <div className="mt-5 flex flex-wrap gap-3"><Link className="rounded-xl bg-slate-950 px-4 py-2 text-sm font-semibold text-white" href={`/printers/${id}/edit`}>编辑</Link>{printer.status === "active" ? <><Link className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold" href={`/printers/${id}/replace`}>换机</Link><Link className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold" href={`/printers/${id}/remove`}>撤机</Link></> : null}<form action={deletePrinter.bind(null, id)}><button className="rounded-xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-700">删除</button></form></div>
     <div className="mt-6 grid gap-6 lg:grid-cols-2">

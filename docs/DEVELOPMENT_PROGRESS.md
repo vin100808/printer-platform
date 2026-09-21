@@ -314,3 +314,30 @@ Migration：`20260919180505_task12_order_evolution`
 - 烟测时清除了数据库中的旧登录会话（不影响数据，重新登录即可）。
 
 下一阶段：TASK 15（Printer 解耦重构），建议先人工体验本 TASK 页面。
+
+## TASK 15｜Printer 解耦重构
+
+状态：已完成，等待人工体验页面
+
+完成内容：
+
+- 解除新 Printer 创建对 SupplierOrder / SupplierOrderItem 的依赖：进场表单不再出现供应商订单明细选择器，只需客户订单明细 + 机型 + 进场日期 + 初始读数；`printerSchema.supplierOrderItemId` 改为可空，服务端仅在选择时校验其存在性 / 订单未取消 / 交付容量。旧入口兼容：供应商订单详情页「部署打印机」链接携带的 `supplierOrderItemId` 参数仍可通过隐藏字段关联。
+- `supplierAssetCode` 列改为可空（migration `20260921061413_task15_printer_decouple`，仅 DROP NOT NULL，无破坏性 DDL）；新表单中改为选填，详情 / 列表 / 订单聚合页全部空值安全（显示「—」）；编辑页保留该字段用于修正历史数据。
+- printerCode 生成规则落地（TASK 11 §11.3）：手填编码 > 供应商资产编码 > 系统生成（`nextCode` 扩展支持 P 前缀，P0001 起，不复用已删除记录的序号）；新增纯函数 `resolvePrinterCode` 与 3 个单测。
+- 重复编码应用层提示（TASK 12 遗留）：手填 / 资产编码与「运行中」打印机重名时返回清晰错误（列出所属客户，提示更换或留空自动生成）；历史机重名不拦截（不同供应商允许同编号）；内部唯一仍靠 id / qrToken。
+- 换机适配：供应商明细改为可选，留空 = 沿用原机（原机未关联则新机也不关联）；改选时照旧校验订单未取消与交付容量（排除旧机）；新打印机编码 / 资产编码同样支持留空自动生成；换机事务（旧机 replaced + exitDate、新机 active + previousPrinterId）与撤机逻辑不变，MeterReading 与历史 Printer 零改动。
+- 编辑打印机：printerCode 仍必填（创建时已解析出最终编码），supplierAssetCode 改为选填。
+
+测试与验证：
+
+- 91 个用例全绿：printerSchema / printerReplaceSchema 可空化用例更新，新增 resolvePrinterCode ×3、nextCode P 前缀 ×1；integrity 新增 Scenario 6（无供应商订单 / 资产编码进场 → 抄表 → 供应商侧缺失结算降级 → 换机保持无关联 → 撤机），TASK 10 原 5 场景不受影响。
+- prisma validate / typecheck / lint / build 全部通过。
+- 真实页面烟测（管理会话 + MPA 表单协议真实调用 Server Action）：新增打印机编码 / 资产编码 / 供应商明细全留空 → 自动生成 P0001、供应商两侧字段 NULL、详情页 200 且显示「资产编码 —」与「未配置」；手填 P0001 重名 → 返回「已有运行中的打印机使用编码」提示；对 P0001 换机（全留空）→ 旧机 replaced + exitDate、新机自动生成 P0002、previousPrinterId 链接正确；试点历史打印机（test1 / 资产 wcea / 有关联供应商订单）详情、编辑、换机页均 200 且数据显示完整。烟测数据已清理，库中仅剩试点打印机。
+- 注意：migration 重新生成 Prisma Client 后需重启 dev server，否则旧 Client 会拒绝可空字段（本次烟测已踩坑并确认）。
+
+范围说明：
+
+- 不做 TASK 16（Settlement 重构 / Order 级聚合增强）与 TASK 17（导航与旧 UI 收敛）；供应商订单 / 供应商套餐等旧页面保持现状。
+- 订单详情页「部署打印机」入口、部署容量控制、部署进度统计逻辑不变（仍按运行中 Printer 统计客户订单明细）。
+
+下一阶段：TASK 16（Settlement 适配），建议先人工体验本 TASK 页面。

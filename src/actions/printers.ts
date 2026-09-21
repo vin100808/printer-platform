@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import type { FormState } from "@/actions/master-data";
 import { requireAdmin } from "@/lib/auth";
-import { firstError, canChangeLifecycle, isBeforeDay, newQrToken, printerRemoveSchema, printerReplaceSchema, printerSchema, printerUpdateSchema, values } from "@/lib/printers";
+import { firstError, canChangeLifecycle, isBeforeDay, newQrToken, printerRemoveSchema, printerReplaceSchema, printerSchema, printerUpdateSchema, resolvePrinterCode, values } from "@/lib/printers";
 import { prisma } from "@/lib/prisma";
 
 const printerKeys = ["printerCode", "supplierAssetCode", "machineModelId", "customerOrderItemId", "supplierOrderItemId", "entryDate", "initialBwReading", "initialColorReading", "remark"];
@@ -16,11 +16,26 @@ function isRedirect(error: unknown) {
 }
 
 function databaseError(error: unknown) {
-  if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") return "打印机编码已存在。";
+  if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") return "数据唯一性冲突（如该原打印机已有后续替换机），请检查后重试。";
   return "保存失败，请稍后重试。";
 }
 
-async function verifyPrinterRefs(input: { machineModelId: string; customerOrderItemId: string; supplierOrderItemId: string }) {
+// 解析新打印机编码；手填 / 供应商资产编码若与运行中打印机重名，给出应用层提示（printerCode 已无全库唯一约束）。
+async function resolveNewPrinterCode(input: { printerCode: string | null; supplierAssetCode: string | null }) {
+  if (!input.printerCode && !input.supplierAssetCode) {
+    const rows = await prisma.printer.findMany({ select: { printerCode: true } });
+    return { code: resolvePrinterCode(input, rows.map((row) => row.printerCode)).code };
+  }
+  const { code } = resolvePrinterCode(input, []);
+  const conflict = await prisma.printer.findFirst({
+    where: { printerCode: code, status: "active" },
+    select: { customerOrderItem: { select: { order: { select: { customer: { select: { customerName: true } } } } } } },
+  });
+  if (conflict) return { error: `已有运行中的打印机使用编码「${code}」（客户：${conflict.customerOrderItem.order.customer.customerName}）。如确为不同设备，请更换编码或留空由系统生成。` };
+  return { code };
+}
+
+async function verifyPrinterRefs(input: { machineModelId: string; customerOrderItemId: string; supplierOrderItemId: string | null }) {
   const [machineModel, customerItem, supplierItem] = await Promise.all([
     prisma.machineModel.findUnique({ where: { id: input.machineModelId }, select: { id: true } }),
     prisma.customerOrderItem.findUnique({
@@ -32,23 +47,25 @@ async function verifyPrinterRefs(input: { machineModelId: string; customerOrderI
         printers: { where: { status: "active" }, select: { id: true } },
       },
     }),
-    prisma.supplierOrderItem.findUnique({
-      where: { id: input.supplierOrderItemId },
-      select: {
-        id: true,
-        quantity: true,
-        order: { select: { status: true } },
-        printers: { where: { status: "active" }, select: { id: true } },
-      },
-    }),
+    input.supplierOrderItemId
+      ? prisma.supplierOrderItem.findUnique({
+          where: { id: input.supplierOrderItemId },
+          select: {
+            id: true,
+            quantity: true,
+            order: { select: { status: true } },
+            printers: { where: { status: "active" }, select: { id: true } },
+          },
+        })
+      : null,
   ]);
   if (!machineModel) return "所选机型不存在，请重新选择。";
   if (!customerItem) return "所选客户订单明细不存在，请重新选择。";
-  if (!supplierItem) return "所选供应商订单明细不存在，请重新选择。";
+  if (input.supplierOrderItemId && !supplierItem) return "所选供应商订单明细不存在，请重新选择。";
   if (customerItem.order.status === "cancelled") return "所选客户订单已取消，不能部署打印机。";
-  if (supplierItem.order.status === "cancelled") return "所选供应商订单已取消，不能部署打印机。";
+  if (supplierItem?.order.status === "cancelled") return "所选供应商订单已取消，不能部署打印机。";
   if (customerItem.printers.length >= customerItem.quantity) return "所选客户订单明细已部署满，不能继续新增打印机。";
-  if (supplierItem.printers.length >= supplierItem.quantity) return "所选供应商订单明细已交付满，不能继续新增打印机。";
+  if (supplierItem && supplierItem.printers.length >= supplierItem.quantity) return "所选供应商订单明细已交付满，不能继续新增打印机。";
   return null;
 }
 
@@ -58,9 +75,11 @@ export async function createPrinter(_: FormState, formData: FormData): Promise<F
   if (!parsed.success) return { error: firstError(parsed.error) };
   const refError = await verifyPrinterRefs(parsed.data);
   if (refError) return { error: refError };
+  const resolved = await resolveNewPrinterCode(parsed.data);
+  if ("error" in resolved) return { error: resolved.error };
   try {
     const item = await prisma.printer.create({
-      data: { ...parsed.data, status: "active", qrToken: newQrToken() },
+      data: { ...parsed.data, printerCode: resolved.code, status: "active", qrToken: newQrToken() },
     });
     revalidatePath("/printers");
     revalidatePath("/orders");
@@ -97,39 +116,45 @@ export async function updatePrinter(id: string, _: FormState, formData: FormData
 const replaceKeys = ["printerCode", "supplierAssetCode", "machineModelId", "supplierOrderItemId", "replaceDate", "initialBwReading", "initialColorReading", "remark"];
 
 // 换机：旧机 replaced + exitDate，新机 active + previousPrinterId，同事务完成。
+// 供应商明细留空 = 沿用原机（原机未关联则新机也不关联）；printerCode 留空按规则生成。
 export async function replacePrinter(oldId: string, _: FormState, formData: FormData): Promise<FormState> {
   await requireAdmin();
   const parsed = printerReplaceSchema.safeParse(values(formData, replaceKeys));
   if (!parsed.success) return { error: firstError(parsed.error) };
   const old = await prisma.printer.findUnique({
     where: { id: oldId },
-    select: { id: true, status: true, entryDate: true, customerOrderItemId: true },
+    select: { id: true, status: true, entryDate: true, customerOrderItemId: true, supplierOrderItemId: true },
   });
   if (!old) return { error: "原打印机不存在。" };
   if (!canChangeLifecycle(old.status)) return { error: "只有运行中的打印机可以换机。" };
   if (isBeforeDay(parsed.data.replaceDate, old.entryDate)) return { error: "换机日期不能早于原打印机进场日期。" };
+  const supplierOrderItemId = parsed.data.supplierOrderItemId ?? old.supplierOrderItemId;
   const [machineModel, supplierItem] = await Promise.all([
     prisma.machineModel.findUnique({ where: { id: parsed.data.machineModelId }, select: { id: true } }),
-    prisma.supplierOrderItem.findUnique({
-      where: { id: parsed.data.supplierOrderItemId },
-      // 旧机即将退场，统计容量时把它排除。
-      select: { quantity: true, order: { select: { status: true } }, printers: { where: { status: "active", id: { not: oldId } }, select: { id: true } } },
-    }),
+    supplierOrderItemId
+      ? prisma.supplierOrderItem.findUnique({
+          where: { id: supplierOrderItemId },
+          // 旧机即将退场，统计容量时把它排除。
+          select: { quantity: true, order: { select: { status: true } }, printers: { where: { status: "active", id: { not: oldId } }, select: { id: true } } },
+        })
+      : null,
   ]);
   if (!machineModel) return { error: "所选机型不存在，请重新选择。" };
-  if (!supplierItem) return { error: "所选供应商订单明细不存在，请重新选择。" };
-  if (supplierItem.order.status === "cancelled") return { error: "所选供应商订单已取消，不能用于换机。" };
-  if (supplierItem.printers.length >= supplierItem.quantity) return { error: "所选供应商订单明细已交付满，不能用于换机。" };
+  if (supplierOrderItemId && !supplierItem) return { error: "所选供应商订单明细不存在，请重新选择。" };
+  if (supplierItem?.order.status === "cancelled") return { error: "所选供应商订单已取消，不能用于换机。" };
+  if (supplierItem && supplierItem.printers.length >= supplierItem.quantity) return { error: "所选供应商订单明细已交付满，不能用于换机。" };
+  const resolved = await resolveNewPrinterCode(parsed.data);
+  if ("error" in resolved) return { error: resolved.error };
   try {
     const created = await prisma.$transaction(async (tx) => {
       await tx.printer.update({ where: { id: oldId }, data: { status: "replaced", exitDate: parsed.data.replaceDate } });
       return tx.printer.create({
         data: {
-          printerCode: parsed.data.printerCode,
+          printerCode: resolved.code,
           supplierAssetCode: parsed.data.supplierAssetCode,
           machineModelId: parsed.data.machineModelId,
           customerOrderItemId: old.customerOrderItemId,
-          supplierOrderItemId: parsed.data.supplierOrderItemId,
+          supplierOrderItemId,
           entryDate: parsed.data.replaceDate,
           initialBwReading: parsed.data.initialBwReading,
           initialColorReading: parsed.data.initialColorReading,

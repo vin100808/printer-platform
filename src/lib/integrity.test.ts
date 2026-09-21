@@ -2,7 +2,7 @@ import { Prisma } from "@prisma/client";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { computeUsages } from "@/lib/meter";
 import { newQrToken } from "@/lib/printers";
-import { computeSettlement } from "@/lib/settlement";
+import { computeSettlement, computeSettlementOptionalSupplier } from "@/lib/settlement";
 import { prisma } from "@/lib/prisma";
 
 // 数据库未运行时（如未启动 Docker）跳过集成测试，保持 npm test 可用。
@@ -233,6 +233,51 @@ describe("最终 V1 验收场景（端到端数据链路）", () => {
     // 历史链路完整可查：订单、明细、套餐仍在
     const order = await prisma.customerOrder.findUniqueOrThrow({ where: { id: fx.cOrderId }, include: { items: true } });
     expect(order.items[0].quantity).toBe(2);
+  });
+
+  it("Scenario 6｜新流程（TASK 15）：无供应商订单 / 资产编码进场 → 抄表 → 换机（保持无关联）→ 撤机", async () => {
+    // 进场：不关联 SupplierOrderItem、不填供应商资产编码（列已可空）
+    const p5 = await prisma.printer.create({
+      data: { printerCode: "V1-P005", supplierAssetCode: null, machineModelId: fx.modelId, customerOrderItemId: fx.cItemId, supplierOrderItemId: null, entryDate: new Date("2026-10-10"), initialBwReading: 0, initialColorReading: 0, status: "active", qrToken: newQrToken() },
+    });
+    printerIds.push(p5.id);
+    expect(p5.supplierOrderItemId).toBeNull();
+    expect(p5.supplierAssetCode).toBeNull();
+
+    // 抄表不受影响（MeterReading 与供应商侧无关联）
+    const usages = computeUsages(0, 500, 0, 10);
+    const reading = await prisma.meterReading.create({
+      data: { printerId: p5.id, readingYear: 2026, readingMonth: 10, previousBwReading: 0, currentBwReading: 500, previousColorReading: 0, currentColorReading: 10, ...usages, photoUrl: "/api/files/meter-readings/photos/v1-s6.jpg" },
+    });
+    expect(reading.bwEquivalentUsage).toBe(600);
+
+    // 结算：客户侧照常计算，供应商侧与毛利为 null（未配置不阻塞客户业务）
+    const full = await prisma.printer.findUniqueOrThrow({ where: { id: p5.id }, include: { customerOrderItem: { include: { customerPackage: true } }, supplierOrderItem: { include: { supplierPackage: true } } } });
+    const settlement = computeSettlementOptionalSupplier({
+      year: 2026, month: 10, entryDate: full.entryDate, exitDate: full.exitDate,
+      bwUsage: reading.bwUsage, colorUsage: reading.colorUsage, bwEquivalentUsage: reading.bwEquivalentUsage,
+      customerPackage: full.customerOrderItem.customerPackage,
+      supplierPackage: full.supplierOrderItem?.supplierPackage ?? null,
+    });
+    if (!settlement) throw new Error("结算不应为 null");
+    expect(settlement.supplier).toBeNull();
+    expect(settlement.operatingGrossProfit).toBeNull();
+    expect(Number(settlement.customer.monthlyAmount.toString())).toBeGreaterThan(0);
+
+    // 换机：新机保持无供应商关联，换机链完整
+    await prisma.printer.update({ where: { id: p5.id }, data: { status: "replaced", exitDate: new Date("2026-10-20") } });
+    const p6 = await prisma.printer.create({
+      data: { printerCode: "V1-P006", supplierAssetCode: null, machineModelId: fx.modelId, customerOrderItemId: fx.cItemId, supplierOrderItemId: null, entryDate: new Date("2026-10-20"), initialBwReading: 500, initialColorReading: 10, status: "active", previousPrinterId: p5.id, qrToken: newQrToken() },
+    });
+    printerIds.push(p6.id);
+    const oldOne = await prisma.printer.findUniqueOrThrow({ where: { id: p5.id }, include: { meterReadings: true, replacementPrinter: { select: { printerCode: true } } } });
+    expect(oldOne.status).toBe("replaced");
+    expect(oldOne.meterReadings).toHaveLength(1); // 历史抄表保留在旧机
+    expect(oldOne.replacementPrinter?.printerCode).toBe("V1-P006");
+
+    // 撤机：状态 removed，记录保留
+    await prisma.printer.update({ where: { id: p6.id }, data: { status: "removed", exitDate: new Date("2026-10-25") } });
+    expect((await prisma.printer.findUniqueOrThrow({ where: { id: p6.id } })).status).toBe("removed");
   });
   });
 });

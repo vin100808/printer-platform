@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { nextCode } from "./codes";
 
-describe("customer / supplier code auto-generation", () => {
-  it("starts customers at C0001 and suppliers at S0001 on an empty list", () => {
+describe("customer / supplier / printer code auto-generation", () => {
+  it("starts customers at C0001, suppliers at S0001 and printers at P0001 on an empty list", () => {
     expect(nextCode("C", [])).toBe("C0001");
     expect(nextCode("S", [])).toBe("S0001");
+    expect(nextCode("P", [])).toBe("P0001");
   });
 
   it("increments from the highest matching numeric suffix", () => {
