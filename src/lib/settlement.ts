@@ -112,6 +112,63 @@ export function computeSettlementOptionalSupplier(
   };
 }
 
+/** 自然季度：1-3 月 Q1，4-6 月 Q2，7-9 月 Q3，10-12 月 Q4。 */
+export function quarterOfMonth(month: number) {
+  return Math.ceil(month / 3);
+}
+
+function sumSides(sides: SettlementSide[]): SettlementSide {
+  const zero = new Decimal(0);
+  return {
+    actualMonthlyRent: money2(sides.reduce((sum, side) => sum.add(side.actualMonthlyRent), zero)),
+    actualFreeQuota: quota2(sides.reduce((sum, side) => sum.add(side.actualFreeQuota), zero)),
+    overageUsage: quota2(sides.reduce((sum, side) => sum.add(side.overageUsage), zero)),
+    overageFee: money2(sides.reduce((sum, side) => sum.add(side.overageFee), zero)),
+    monthlyAmount: money2(sides.reduce((sum, side) => sum.add(side.monthlyAmount), zero)),
+  };
+}
+
+export interface QuarterlyPrinterSettlement {
+  year: number;
+  quarter: number;
+  /** 参与聚合的月份数（该季度内有抄表且当月在场的月份） */
+  monthCount: number;
+  bwUsage: Decimal;
+  colorUsage: Decimal;
+  bwEquivalentUsage: Decimal;
+  customer: SettlementSide;
+  supplier: SettlementSide | null;
+  operatingGrossProfit: Decimal | null;
+}
+
+/**
+ * 自然季度聚合（单 Printer）：把同一自然季度内各月的结算结果求和。
+ * 月度计算不变（免费额度仍按 Printer 逐月独立折算，不跨机共享），季度中途进场/退场由各月按天折算处理。
+ * 取结果集中最近的一个季度；任一月份缺供应商侧价格时 supplier 与毛利为 null，客户侧照常汇总。
+ */
+export function aggregateQuarterlySettlement(results: OptionalSupplierSettlementResult[]): QuarterlyPrinterSettlement | null {
+  if (!results.length) return null;
+  const keyed = results.map((result) => ({ result, quarter: quarterOfMonth(result.month) }));
+  const latest = keyed.reduce(
+    (acc, entry) => (entry.result.year > acc.year || (entry.result.year === acc.year && entry.quarter > acc.quarter) ? { year: entry.result.year, quarter: entry.quarter } : acc),
+    { year: keyed[0].result.year, quarter: keyed[0].quarter },
+  );
+  const inQuarter = keyed.filter((entry) => entry.result.year === latest.year && entry.quarter === latest.quarter).map((entry) => entry.result);
+  const customer = sumSides(inQuarter.map((result) => result.customer));
+  const supplier = inQuarter.every((result) => result.supplier) ? sumSides(inQuarter.map((result) => result.supplier!)) : null;
+  return {
+    year: latest.year,
+    quarter: latest.quarter,
+    monthCount: inQuarter.length,
+    bwUsage: inQuarter.reduce((sum, result) => sum.add(result.bwUsage), new Decimal(0)),
+    colorUsage: inQuarter.reduce((sum, result) => sum.add(result.colorUsage), new Decimal(0)),
+    bwEquivalentUsage: inQuarter.reduce((sum, result) => sum.add(result.bwEquivalentUsage), new Decimal(0)),
+    customer,
+    supplier,
+    operatingGrossProfit: supplier ? money2(customer.monthlyAmount.sub(supplier.monthlyAmount)) : null,
+  };
+}
+
 export interface OrderSettlementSummary {
   year: number;
   month: number;
@@ -142,6 +199,41 @@ export function summarizeOrderSettlements(results: OptionalSupplierSettlementRes
     year: latest.year,
     month: latest.month,
     printerCount: inMonth.length,
+    customerAmount,
+    supplierAmount,
+    operatingGrossProfit: supplierAmount ? money2(customerAmount.sub(supplierAmount)) : null,
+  };
+}
+
+export interface OrderQuarterlySummary {
+  year: number;
+  quarter: number;
+  /** 参与该季度汇总的打印机台数 */
+  printerCount: number;
+  customerAmount: Decimal;
+  supplierAmount: Decimal | null;
+  operatingGrossProfit: Decimal | null;
+}
+
+/**
+ * 订单季度结算摘要：先逐 Printer 聚合到自然季度，再取各打印机最近的一个季度汇总金额。
+ * 免费额度按 Printer 独立；无有效结果返回 null；供应商侧缺失不阻塞客户侧合计。
+ */
+export function summarizeOrderQuarterlySettlements(results: QuarterlyPrinterSettlement[]): OrderQuarterlySummary | null {
+  if (!results.length) return null;
+  const latest = results.reduce(
+    (acc, result) => (result.year > acc.year || (result.year === acc.year && result.quarter > acc.quarter) ? { year: result.year, quarter: result.quarter } : acc),
+    { year: results[0].year, quarter: results[0].quarter },
+  );
+  const inQuarter = results.filter((result) => result.year === latest.year && result.quarter === latest.quarter);
+  const customerAmount = money2(inQuarter.reduce((sum, result) => sum.add(result.customer.monthlyAmount), new Decimal(0)));
+  const supplierAmount = inQuarter.every((result) => result.supplier)
+    ? money2(inQuarter.reduce((sum, result) => sum.add(result.supplier!.monthlyAmount), new Decimal(0)))
+    : null;
+  return {
+    year: latest.year,
+    quarter: latest.quarter,
+    printerCount: inQuarter.length,
     customerAmount,
     supplierAmount,
     operatingGrossProfit: supplierAmount ? money2(customerAmount.sub(supplierAmount)) : null,

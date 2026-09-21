@@ -341,3 +341,29 @@ Migration：`20260919180505_task12_order_evolution`
 - 订单详情页「部署打印机」入口、部署容量控制、部署进度统计逻辑不变（仍按运行中 Printer 统计客户订单明细）。
 
 下一阶段：TASK 16（Settlement 适配），建议先人工体验本 TASK 页面。
+
+## TASK 16｜Settlement 适配：Order 聚合 + 自然季度结算
+
+状态：已完成，等待人工体验页面
+
+完成内容：
+
+- `src/lib/settlement.ts` 新增纯函数（月度计算逻辑零改动）：
+  - `quarterOfMonth(month)`：自然季度 Q1（1-3 月）/ Q2（4-6）/ Q3（7-9）/ Q4（10-12）。
+  - `aggregateQuarterlySettlement(results)`：单 Printer 自然季度聚合——取结果集中最近的季度，把该季度内各月 `computeSettlementOptionalSupplier` 结果逐字段求和（折算月租 / 免费额度 / 超印量 / 超印费 / 月金额、黑白 / 彩色 / BW Equivalent 用量）；免费额度仍按 Printer 逐月独立折算，不跨机共享；季度中途进场 / 退场由各月既有按天折算自然处理；任一月份缺供应商侧价格时 supplier 与毛利为 null、客户侧照常汇总；空结果返回 null。
+  - `summarizeOrderQuarterlySettlements(results)`：Order 级季度汇总——先逐 Printer 聚合到季度，再取各打印机最近季度求和客户应收 / 供应商应付 / 毛利；任一打印机缺供应商侧价格时应付与毛利为 null，不阻塞客户侧。
+- 订单详情页（`/orders/[id]`）按 `billingCycle` 切换结算摘要：monthly 保持既有行为（各打印机最近抄表月份 → `summarizeOrderSettlements`）；quarterly 逐台先算各月、经 `aggregateQuarterlySettlement` 聚合后经 `summarizeOrderQuarterlySettlements` 汇总，标题显示「结算摘要 · yyyy 年 Qn」，说明文案含结算方式与按天折算提示。抄表查询由 `take: 1` 调整为 `take: 3`（恰好覆盖一个自然季度，monthly 仍只用最近一条）。
+- 打印机详情页：订单为 quarterly 时在月度结算区块上方新增「季度结算 · yyyy 年 Qn」区块（聚合月份数、BW Equivalent 合计、双侧折算月租 / 额度 / 超印 / 季度金额、应收 / 应付 / 毛利，供应商侧缺失显示「未配置 / 暂不可计算」）；月度结算区块保持原样不变。
+- 未动：MeterReading / Package Version / 既有月度结算数据与逻辑；无 schema 变更、无 migration。
+
+测试与验证：
+
+- 102 个用例全绿（新增 11 个：quarterOfMonth 边界、整季聚合、季度中途进场按天折算、跨季度取最新、单月份缺供应商降级、季度中途退场、订单季度汇总 ×3 等）；prisma 无变更，typecheck / lint / build 全部通过。
+- 生产构建 + 真实数据库烟测（临时管理会话）：monthly 试点订单与打印机页 200 且仍显示月度结算；新建 quarterly 临时订单 + 打印机 + Q3 两个月（8/20 进场）抄表 → 订单页显示「结算摘要 · 2026 年 Q3」客户应收 27692.06 / 供应商应付 447855.60 / 毛利 -420163.54（与手工逐月按天折算结果逐项一致），打印机页同时渲染季度区块（聚合 2 个月）与原月度区块；烟测数据与临时会话已清理。
+
+范围说明：
+
+- 结算仍为实时计算展示，不生成结算单表；工作台应收 / 应付 / 毛利合计不在本次范围（TASK 11 报告中的可选项，未列入本 TASK 要求）。
+- 不做 TASK 17（导航与旧 UI 收敛）。
+
+下一阶段：TASK 17，建议先人工体验本 TASK 页面。

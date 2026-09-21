@@ -6,7 +6,7 @@ import { CompleteOrderButton } from "@/components/order-actions";
 import { DetailItem, EmptyState, PageHeader, tableClass, tdClass, thClass } from "@/components/master-data-ui";
 import { billingCycleLabel, deploymentStatus, orderStatusLabel } from "@/lib/orders";
 import { hasDeploymentCapacity, printerStatusLabel } from "@/lib/printers";
-import { computeSettlementOptionalSupplier, summarizeOrderSettlements } from "@/lib/settlement";
+import { aggregateQuarterlySettlement, computeSettlementOptionalSupplier, summarizeOrderQuarterlySettlements, summarizeOrderSettlements } from "@/lib/settlement";
 import { prisma } from "@/lib/prisma";
 
 const orderStatusClass: Record<string, string> = {
@@ -51,7 +51,7 @@ export default async function CustomerOrderDetailPage({ params, searchParams }: 
         machineModel: { select: { brand: true, modelName: true } },
         customerOrderItem: { select: { customerPackage: true } },
         supplierOrderItem: { select: { supplierPackage: true } },
-        meterReadings: { orderBy: [{ readingYear: "desc" }, { readingMonth: "desc" }], take: 1 },
+        meterReadings: { orderBy: [{ readingYear: "desc" }, { readingMonth: "desc" }], take: 3 },
       },
       orderBy: [{ entryDate: "asc" }, { printerCode: "asc" }],
     }),
@@ -77,25 +77,29 @@ export default async function CustomerOrderDetailPage({ params, searchParams }: 
       }).length
     : 0;
 
-  // 结算摘要：逐台按各自最近抄表月份计算，再汇总到订单最近业务月份（实时计算，不存库）。
-  const settlements = printers
-    .map((printer) => {
-      const reading = printer.meterReadings[0];
-      if (!reading) return null;
-      return computeSettlementOptionalSupplier({
-        year: reading.readingYear,
-        month: reading.readingMonth,
-        entryDate: printer.entryDate,
-        exitDate: printer.exitDate,
-        bwUsage: reading.bwUsage,
-        colorUsage: reading.colorUsage,
-        bwEquivalentUsage: reading.bwEquivalentUsage,
-        customerPackage: printer.customerOrderItem.customerPackage,
-        supplierPackage: printer.supplierOrderItem?.supplierPackage ?? null,
-      });
-    })
-    .filter((result) => result !== null);
-  const settlementSummary = summarizeOrderSettlements(settlements);
+  // 结算：先逐 Printer 逐月计算（免费额度按 Printer 独立折算，不共享），再按结算方式汇总到订单。
+  // monthly：各打印机最近抄表月份直接汇总；quarterly：各打印机先按自然季度（Q1-Q4）聚合，再汇总最近季度。
+  const settlementsByPrinter = printers.map((printer) =>
+    printer.meterReadings
+      .map((reading) =>
+        computeSettlementOptionalSupplier({
+          year: reading.readingYear,
+          month: reading.readingMonth,
+          entryDate: printer.entryDate,
+          exitDate: printer.exitDate,
+          bwUsage: reading.bwUsage,
+          colorUsage: reading.colorUsage,
+          bwEquivalentUsage: reading.bwEquivalentUsage,
+          customerPackage: printer.customerOrderItem.customerPackage,
+          supplierPackage: printer.supplierOrderItem?.supplierPackage ?? null,
+        }),
+      )
+      .filter((result) => result !== null),
+  );
+  const isQuarterly = order.billingCycle === "quarterly";
+  const settlementSummary = isQuarterly
+    ? summarizeOrderQuarterlySettlements(settlementsByPrinter.map((results) => aggregateQuarterlySettlement(results)).filter((result) => result !== null))
+    : summarizeOrderSettlements(settlementsByPrinter.map((results) => results[0]).filter((result) => result !== undefined));
   const canComplete = order.status === "draft" || order.status === "confirmed";
 
   return <div className="mx-auto max-w-7xl"><PageHeader description={`下单日期 ${order.orderDate.toLocaleDateString("zh-CN")}`} title={`订单 · ${order.orderNo}`} />
@@ -113,6 +117,6 @@ export default async function CustomerOrderDetailPage({ params, searchParams }: 
       return <tr key={printer.id}><td className={tdClass}><Link className="font-semibold text-blue-700" href={`/printers/${printer.id}`}>{printer.printerCode}</Link><br /><span className="text-xs text-slate-400">资产编码 {printer.supplierAssetCode ?? "—"}</span></td><td className={tdClass}>{`${printer.machineModel.brand} ${printer.machineModel.modelName}`}</td><td className={tdClass}><span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${printerStatusClass[printer.status] ?? "bg-slate-100 text-slate-600"}`}>{printerStatusLabel[printer.status]}</span></td><td className={tdClass}>{printer.entryDate.toLocaleDateString("zh-CN")}</td><td className={tdClass}>{printer.exitDate?.toLocaleDateString("zh-CN") ?? "—"}</td><td className={tdClass}>{reading ? <>{`${reading.readingYear}-${String(reading.readingMonth).padStart(2, "0")}`}<br /><span className="text-xs text-slate-400">BW Equivalent {reading.bwEquivalentUsage}</span></> : "—"}</td><td className={tdClass}><Link className="font-semibold text-blue-700" href={`/printers/${printer.id}`}>详情</Link></td></tr>;
     })}</tbody></table></div>}</section>
     <section className="mt-8"><h2 className="text-xl font-bold">抄表摘要</h2>{latestReading ? <dl className="mt-4 grid gap-3 sm:grid-cols-3"><div className="rounded-xl bg-slate-50 p-3"><dt className="text-xs text-slate-500">最近业务月份</dt><dd className="mt-1 font-semibold text-slate-900">{latestReading.year}-{String(latestReading.month).padStart(2, "0")}</dd></div><div className="rounded-xl bg-slate-50 p-3"><dt className="text-xs text-slate-500">该月已抄</dt><dd className="mt-1 font-semibold text-slate-900">{readingsInLatestMonth} / {printers.length} 台</dd></div><div className="rounded-xl bg-slate-50 p-3"><dt className="text-xs text-slate-500">运行中</dt><dd className="mt-1 font-semibold text-slate-900">{activePrinters.length} 台</dd></div></dl> : <div className="mt-4"><EmptyState>暂无抄表记录。</EmptyState></div>}</section>
-    {settlementSummary ? <section className="mt-8 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"><h2 className="text-xl font-bold">结算摘要 · {settlementSummary.year} 年 {settlementSummary.month} 月</h2><p className="mt-1 text-xs text-slate-400">按各打印机最近抄表月份实时计算（参与汇总 {settlementSummary.printerCount} 台）；正式账单能力属后续 TASK。</p><dl className="mt-4 grid gap-3 sm:grid-cols-3"><div className="rounded-xl bg-emerald-50 p-3"><dt className="text-xs text-emerald-600">客户应收</dt><dd className="mt-1 font-semibold text-emerald-900">¥{settlementSummary.customerAmount.toString()}</dd></div><div className="rounded-xl bg-slate-100 p-3"><dt className="text-xs text-slate-600">供应商应付</dt><dd className="mt-1 font-semibold text-slate-900">{settlementSummary.supplierAmount ? `¥${settlementSummary.supplierAmount.toString()}` : "未配置"}</dd></div>{settlementSummary.operatingGrossProfit ? <div className={`rounded-xl p-3 ${settlementSummary.operatingGrossProfit.gte(0) ? "bg-blue-50" : "bg-red-50"}`}><dt className={`text-xs ${settlementSummary.operatingGrossProfit.gte(0) ? "text-blue-600" : "text-red-600"}`}>运营毛利</dt><dd className={`mt-1 font-semibold ${settlementSummary.operatingGrossProfit.gte(0) ? "text-blue-900" : "text-red-900"}`}>¥{settlementSummary.operatingGrossProfit.toString()}</dd></div> : <div className="rounded-xl bg-slate-100 p-3"><dt className="text-xs text-slate-600">运营毛利</dt><dd className="mt-1 font-semibold text-slate-900">暂不可计算</dd></div>}</dl></section> : null}
+    {settlementSummary ? <section className="mt-8 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"><h2 className="text-xl font-bold">结算摘要 · {"quarter" in settlementSummary ? `${settlementSummary.year} 年 Q${settlementSummary.quarter}` : `${settlementSummary.year} 年 ${settlementSummary.month} 月`}</h2><p className="mt-1 text-xs text-slate-400">{billingCycleLabel[order.billingCycle]}：逐 Printer 计算后汇总（参与汇总 {settlementSummary.printerCount} 台，实时计算不存库）{"quarter" in settlementSummary ? "；季度中途进场/退场按天折算" : ""}。</p><dl className="mt-4 grid gap-3 sm:grid-cols-3"><div className="rounded-xl bg-emerald-50 p-3"><dt className="text-xs text-emerald-600">客户应收</dt><dd className="mt-1 font-semibold text-emerald-900">¥{settlementSummary.customerAmount.toString()}</dd></div><div className="rounded-xl bg-slate-100 p-3"><dt className="text-xs text-slate-600">供应商应付</dt><dd className="mt-1 font-semibold text-slate-900">{settlementSummary.supplierAmount ? `¥${settlementSummary.supplierAmount.toString()}` : "未配置"}</dd></div>{settlementSummary.operatingGrossProfit ? <div className={`rounded-xl p-3 ${settlementSummary.operatingGrossProfit.gte(0) ? "bg-blue-50" : "bg-red-50"}`}><dt className={`text-xs ${settlementSummary.operatingGrossProfit.gte(0) ? "text-blue-600" : "text-red-600"}`}>运营毛利</dt><dd className={`mt-1 font-semibold ${settlementSummary.operatingGrossProfit.gte(0) ? "text-blue-900" : "text-red-900"}`}>¥{settlementSummary.operatingGrossProfit.toString()}</dd></div> : <div className="rounded-xl bg-slate-100 p-3"><dt className="text-xs text-slate-600">运营毛利</dt><dd className="mt-1 font-semibold text-slate-900">暂不可计算</dd></div>}</dl></section> : null}
   </div>;
 }
