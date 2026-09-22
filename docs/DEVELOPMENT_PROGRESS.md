@@ -367,3 +367,29 @@ Migration：`20260919180505_task12_order_evolution`
 - 不做 TASK 17（导航与旧 UI 收敛）。
 
 下一阶段：TASK 17，建议先人工体验本 TASK 页面。
+
+## TASK 17｜导航与旧 UI 收敛
+
+状态：已完成，等待人工体验页面
+
+完成内容（按 TASK 11 §11.6 全表执行）：
+
+- 一级菜单收敛为 6 项：工作台 `/dashboard`、客户 `/customers`、订单 `/orders`、供应商 `/suppliers`、套餐 `/customer-packages`、机型库 `/machine-models`；客户合同 / 供应商合同 / 供应商套餐 / 供应商订单 / 打印机台账 / 抄表管理全部撤出导航（侧栏角标更新为 TASK 17）。
+- 旧路由兼容：`/customer-orders` 与 `/customer-orders/:path*` 在 `next.config.ts` 配置 308 永久跳转到 `/orders`（TASK 13 遗留）。
+- 客户详情页：移除「新增地点」「新增客户合同」入口与 Locations 管理区（编辑 / 删除），客户框架合同改为只读展示（附件「打开」保留可达）；客户列表行移除「新增地点」快捷入口。
+- 供应商详情页：移除「新增供应商合同」入口，供应商框架合同只读展示；订单 / 打印机视图保留（TASK 09 已就绪）。
+- `customers/[id]/locations/*` 路由整体下线（删除 new / edit 页面，404）。
+- 旧模块只读化（路由保留作历史存档 / DEBUG 入口）：`/supplier-orders`、`/supplier-packages`、`/customer-contracts`、`/supplier-contracts` 四个模块移除全部新增 / 编辑 / 删除 / 新建版本按钮，页面标题与说明标注「历史存档 / 只读」；8 个 new / edit 路由页面改为 `redirect()` 回各自列表页，历史附件经「打开」链接保留可达。
+- 保留不变：`/printers` 与 `/meter-readings` 作为次级管理页（撤出导航但页面正常）；工作台统计卡继续直达 `/meter-readings` 与 `/printers`；供应商订单详情页「部署打印机」兼容入口保留（TASK 15 决定）；所有 Server Action 与数据层逻辑零改动。
+
+验证结果：
+
+- 102 个用例全绿（无逻辑变更，未新增用例）；typecheck / lint / build 全部通过（删除路由后需清理 `.next/dev/types` 陈旧路由类型，已处理）。
+- 生产构建 + 真实数据库烟测（临时管理会话）：导航仅剩 6 项且无旧模块入口；`/customer-orders` 与子路径 308 → `/orders`；客户 / 供应商详情页无 Location / 合同管理入口且合同只读展示；四个旧模块列表与详情 200 只读、无新增 / 删除按钮，8 个 new / edit 路由 307 跳回列表；`/printers` `/meter-readings` `/orders` `/customer-packages` `/machine-models` 均 200；locations 路由 404。烟测临时会话已清理。
+
+范围说明：
+
+- 旧模块的 Server Action（create/update/delete）代码保留未删，仅 UI 入口下线（只读收敛，不影响历史数据与 integrity 测试）。
+- 不做 TASK 18（兼容验证与收尾）。
+
+下一阶段：TASK 18（兼容验证与收尾），建议先人工体验本 TASK 页面。
