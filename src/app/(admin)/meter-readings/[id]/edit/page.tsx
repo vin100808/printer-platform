@@ -16,7 +16,7 @@ export default async function EditMeterReadingPage({ params }: PageProps<"/meter
   });
   if (!reading) notFound();
   const isColor = reading.printer.machineModel.deviceType === "color";
-  return <div className="mx-auto max-w-3xl"><PageHeader description={`调整后状态将变为「已调整」，记录操作人；打印机当前状态：${printerStatusLabel[reading.printer.status]}。`} title={`调整抄表 · ${reading.printer.printerCode} ${reading.readingYear}-${String(reading.readingMonth).padStart(2, "0")}`} />
+  return <div className="mx-auto max-w-3xl"><PageHeader description={`调整后状态将变为「已调整」，记录操作人；读数不得低于上一期、不得高于下一期；打印机当前状态：${printerStatusLabel[reading.printer.status]}。`} title={`调整抄表 · ${reading.printer.printerCode} ${reading.readingYear}-${String(reading.readingMonth).padStart(2, "0")}`} />
     <MeterReadingEditForm
       action={updateMeterReading.bind(null, id)}
       cancelHref={`/printers/${reading.printerId}`}
@@ -30,6 +30,7 @@ export default async function EditMeterReadingPage({ params }: PageProps<"/meter
         currentColor: String(reading.currentColorReading),
         statusLabel: meterStatusLabel(reading.status),
         adminNote: reading.adminNote,
+        photoUrl: reading.photoUrl,
       }}
     />
   </div>;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { COLOR_BW_EQUIVALENT, computeUsages, currentPeriod, meterAdminUpdateSchema, meterStatusLabel, meterSubmitSchema, meterWindow } from "@/lib/meter";
+import { COLOR_BW_EQUIVALENT, adminReadingPeriodError, computeUsages, currentPeriod, meterAdminCreateSchema, meterAdminUpdateSchema, meterStatusLabel, meterSubmitSchema, meterWindow, nextReadingBoundError, parseColorReading } from "@/lib/meter";
 
 describe("meterWindow", () => {
   it("每月 1-3 日开放提交上一自然月", () => {
@@ -66,5 +66,74 @@ describe("状态标签", () => {
   it("识别已提交与已调整", () => {
     expect(meterStatusLabel("submitted")).toBe("已提交");
     expect(meterStatusLabel("adjusted")).toBe("已调整");
+  });
+});
+
+describe("TASK 19 后台手动抄表", () => {
+  describe("meterAdminCreateSchema", () => {
+    it("年月与黑白读数必填，备注可选", () => {
+      expect(meterAdminCreateSchema.safeParse({ readingYear: "2026", readingMonth: "8", currentBwReading: "1200", currentColorReading: "", adminNote: "" }).success).toBe(true);
+      expect(meterAdminCreateSchema.safeParse({ readingYear: "2026", readingMonth: "8", currentBwReading: "1200", currentColorReading: "", adminNote: "电话报数补录" }).success).toBe(true);
+      expect(meterAdminCreateSchema.safeParse({ readingYear: "1999", readingMonth: "8", currentBwReading: "1200", currentColorReading: "", adminNote: "" }).success).toBe(false);
+      expect(meterAdminCreateSchema.safeParse({ readingYear: "2026", readingMonth: "13", currentBwReading: "1200", currentColorReading: "", adminNote: "" }).success).toBe(false);
+      expect(meterAdminCreateSchema.safeParse({ readingYear: "2026", readingMonth: "0", currentBwReading: "1200", currentColorReading: "", adminNote: "" }).success).toBe(false);
+      expect(meterAdminCreateSchema.safeParse({ readingYear: "2026", readingMonth: "8", currentBwReading: "", currentColorReading: "", adminNote: "" }).success).toBe(false);
+    });
+  });
+
+  describe("parseColorReading", () => {
+    it("黑白机不要求彩色读数且禁止填报", () => {
+      expect(parseColorReading("", "black_white")).toBe(0);
+      expect(parseColorReading("0", "black_white")).toBe(0);
+      expect(() => parseColorReading("5", "black_white")).toThrow("黑白设备无需填写彩色读数");
+    });
+
+    it("彩色机必须填写非负整数彩色读数", () => {
+      expect(parseColorReading("120", "color")).toBe(120);
+      expect(() => parseColorReading("", "color")).toThrow("请填写当前彩色读数");
+      expect(() => parseColorReading("1.5", "color")).toThrow("当前彩色读数必须是非负整数");
+    });
+  });
+
+  describe("adminReadingPeriodError", () => {
+    const entry = new Date("2026-06-01");
+    it("不受客户 QR 每月 1-3 日窗口限制：窗口关闭日也可补录历史月份", () => {
+      // 2026-09-15 对客户 QR 而言是「本期已关闭」，但管理员可补录 2026-08 及更早月份。
+      expect(adminReadingPeriodError(2026, 8, entry, null, new Date(2026, 8, 15))).toBeNull();
+      expect(adminReadingPeriodError(2026, 6, entry, null, new Date(2026, 8, 15))).toBeNull();
+      // 当前月份同样允许。
+      expect(adminReadingPeriodError(2026, 9, entry, null, new Date(2026, 8, 15))).toBeNull();
+    });
+
+    it("拒绝未来月份", () => {
+      expect(adminReadingPeriodError(2026, 10, entry, null, new Date(2026, 8, 22))).toContain("未来月份");
+      expect(adminReadingPeriodError(2027, 1, entry, null, new Date(2026, 11, 31))).toContain("未来月份");
+    });
+
+    it("拒绝早于进场月份的补录", () => {
+      expect(adminReadingPeriodError(2026, 5, entry, null, new Date(2026, 8, 22))).toContain("早于打印机进场月份");
+      expect(adminReadingPeriodError(2026, 6, entry, null, new Date(2026, 8, 22))).toBeNull();
+    });
+
+    it("已撤机 / 已换机设备允许补录在役期间内的历史月份，拒绝退场之后", () => {
+      const exit = new Date("2026-08-15");
+      expect(adminReadingPeriodError(2026, 7, entry, exit, new Date(2026, 8, 22))).toBeNull();
+      expect(adminReadingPeriodError(2026, 8, entry, exit, new Date(2026, 8, 22))).toBeNull();
+      expect(adminReadingPeriodError(2026, 9, entry, exit, new Date(2026, 8, 22))).toContain("晚于打印机退场月份");
+    });
+  });
+
+  describe("nextReadingBoundError", () => {
+    const next = { readingYear: 2026, readingMonth: 10, currentBwReading: 20000, currentColorReading: 500 };
+    it("修改后的读数不得高于下一期", () => {
+      expect(nextReadingBoundError({ bw: 20001, color: 500 }, next)).toContain("不能高于下一期");
+      expect(nextReadingBoundError({ bw: 20000, color: 501 }, next)).toContain("不能高于下一期");
+      expect(nextReadingBoundError({ bw: 20000, color: 500 }, next)).toBeNull();
+      expect(nextReadingBoundError({ bw: 15000, color: 300 }, next)).toBeNull();
+    });
+
+    it("没有下一期时不做上界校验", () => {
+      expect(nextReadingBoundError({ bw: 999999, color: 999 }, null)).toBeNull();
+    });
   });
 });

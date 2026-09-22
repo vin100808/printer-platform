@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { computeUsages } from "@/lib/meter";
+import { createAdminMeterReading, updateAdminMeterReading } from "@/lib/meter-admin";
 import { computeDepositAmount, defaultEndDate } from "@/lib/orders";
 import { newQrToken } from "@/lib/printers";
 import { aggregateQuarterlySettlement, computeSettlement, computeSettlementOptionalSupplier, summarizeOrderQuarterlySettlements, summarizeOrderSettlements } from "@/lib/settlement";
@@ -417,6 +418,143 @@ describe("TASK 18 兼容验证（押金 / 状态 / 聚合 / 可空关系）", ()
     expect(summary.customerAmount.toString()).toBe("1134.19"); // 654.19 + 480，客户侧不被阻塞
     expect(summary.supplierAmount).toBeNull(); // pb 缺供应商侧价格 → 应付与毛利不可汇总
     expect(summary.operatingGrossProfit).toBeNull();
+  });
+});
+
+describe("TASK 19 后台手动新增 / 编辑抄表", () => {
+  const it19PrinterIds: string[] = [];
+  let bwModelId = "";
+
+  beforeAll(async () => {
+    const bwModel = await prisma.machineModel.create({ data: { brand: "测试品牌", modelName: "IT19-BW", deviceType: "black_white" } });
+    bwModelId = bwModel.id;
+  });
+
+  afterAll(async () => {
+    await prisma.printer.deleteMany({ where: { id: { in: it19PrinterIds } } });
+    await prisma.machineModel.deleteMany({ where: { id: bwModelId } });
+  });
+
+  function expectError(result: { error: string } | { reading: unknown }) {
+    if (!("error" in result)) throw new Error("应被拒绝，但实际成功了");
+    return result.error;
+  }
+
+  async function createP19(code: string, opts?: { bw?: boolean; exitDate?: Date; status?: "active" | "removed" | "replaced" }) {
+    const p = await prisma.printer.create({
+      data: {
+        printerCode: code, machineModelId: opts?.bw ? bwModelId : fx.modelId, customerOrderItemId: fx.cItemId, supplierOrderItemId: fx.sItemId,
+        entryDate: new Date("2026-06-01"), exitDate: opts?.exitDate ?? null, initialBwReading: 1000, initialColorReading: opts?.bw ? 0 : 50,
+        status: opts?.status ?? "active", qrToken: newQrToken(),
+      },
+    });
+    it19PrinterIds.push(p.id);
+    return p;
+  }
+
+  it("管理员可新增历史月份抄表：首期上期 = 进场初始读数，照片可选（不强制）", async () => {
+    const p = await createP19("IT19-P1");
+    const result = await createAdminMeterReading({ printerId: p.id, readingYear: 2026, readingMonth: 6, currentBwReading: 5000, currentColorRaw: "100", adminNote: "后台补录", operator: "测试管理员" });
+    if ("error" in result) throw new Error(result.error);
+    expect(result.reading.photoUrl).toBeNull(); // 后台录入照片不强制
+    expect(result.reading.status).toBe("submitted");
+    expect(result.reading.previousBwReading).toBe(1000);
+    expect(result.reading.previousColorReading).toBe(50);
+    expect(result.reading.bwUsage).toBe(4000);
+    expect(result.reading.colorUsage).toBe(50);
+    expect(result.reading.bwEquivalentUsage).toBe(4500);
+    expect(result.reading.adminNote).toBe("后台补录");
+    expect(result.reading.updatedBy).toBe("测试管理员");
+
+    // 同一 Printer + year + month 不能重复新增
+    const dup = await createAdminMeterReading({ printerId: p.id, readingYear: 2026, readingMonth: 6, currentBwReading: 6000, currentColorRaw: "120" });
+    expect(expectError(dup)).toContain("已有抄表记录");
+    expect(await prisma.meterReading.count({ where: { printerId: p.id, readingYear: 2026, readingMonth: 6 } })).toBe(1);
+  });
+
+  it("前后期间读数校验：不得低于上一期、不得高于下一期（BW / 彩色分别校验）", async () => {
+    const p = await prisma.printer.findFirstOrThrow({ where: { printerCode: "IT19-P1" } });
+    // 先录入 8 月（上一期为 6 月：5000 / 100）
+    const aug = await createAdminMeterReading({ printerId: p.id, readingYear: 2026, readingMonth: 8, currentBwReading: 9000, currentColorRaw: "200" });
+    if ("error" in aug) throw new Error(aug.error);
+    expect(aug.reading.previousBwReading).toBe(5000);
+
+    // 补录 7 月：低于上一期（6 月 5000 / 100）拒绝
+    expect(expectError(await createAdminMeterReading({ printerId: p.id, readingYear: 2026, readingMonth: 7, currentBwReading: 4999, currentColorRaw: "150" }))).toContain("不能低于上期");
+    expect(expectError(await createAdminMeterReading({ printerId: p.id, readingYear: 2026, readingMonth: 7, currentBwReading: 7000, currentColorRaw: "99" }))).toContain("不能低于上期");
+    // 高于下一期（8 月 9000 / 200）拒绝
+    expect(expectError(await createAdminMeterReading({ printerId: p.id, readingYear: 2026, readingMonth: 7, currentBwReading: 9001, currentColorRaw: "150" }))).toContain("不能高于下一期");
+    expect(expectError(await createAdminMeterReading({ printerId: p.id, readingYear: 2026, readingMonth: 7, currentBwReading: 7000, currentColorRaw: "201" }))).toContain("不能高于下一期");
+    // 区间内合法插入：上一期自动取 6 月而非最新的 8 月
+    const jul = await createAdminMeterReading({ printerId: p.id, readingYear: 2026, readingMonth: 7, currentBwReading: 7000, currentColorRaw: "150" });
+    if ("error" in jul) throw new Error(jul.error);
+    expect(jul.reading.previousBwReading).toBe(5000);
+    expect(jul.reading.bwUsage).toBe(2000);
+
+    // 编辑历史月份：高于下一期 / 低于上一期均拒绝；合法编辑更新同一条记录
+    const countBefore = await prisma.meterReading.count({ where: { printerId: p.id } });
+    expect(expectError(await updateAdminMeterReading({ id: jul.reading.id, currentBwReading: 9500, currentColorRaw: "150", adminNote: "x" }))).toContain("不能高于下一期");
+    expect(expectError(await updateAdminMeterReading({ id: jul.reading.id, currentBwReading: 4000, currentColorRaw: "150", adminNote: "x" }))).toContain("不能低于上期");
+    const updated = await updateAdminMeterReading({ id: jul.reading.id, currentBwReading: 7500, currentColorRaw: "160", adminNote: "客户电话更正", operator: "测试管理员" });
+    if ("error" in updated) throw new Error(updated.error);
+    expect(updated.reading.id).toBe(jul.reading.id); // 不产生同月第二条数据
+    expect(updated.reading.status).toBe("adjusted");
+    expect(updated.reading.bwUsage).toBe(2500);
+    expect(updated.reading.photoUrl).toBeNull(); // 编辑不强制照片
+    expect(await prisma.meterReading.count({ where: { printerId: p.id } })).toBe(countBefore);
+  });
+
+  it("黑白机不要求彩色读数", async () => {
+    const p = await createP19("IT19-P2", { bw: true });
+    const ok = await createAdminMeterReading({ printerId: p.id, readingYear: 2026, readingMonth: 6, currentBwReading: 3000, currentColorRaw: "" });
+    if ("error" in ok) throw new Error(ok.error);
+    expect(ok.reading.currentColorReading).toBe(0);
+    expect(expectError(await createAdminMeterReading({ printerId: p.id, readingYear: 2026, readingMonth: 7, currentBwReading: 4000, currentColorRaw: "5" }))).toContain("黑白设备");
+  });
+
+  it("已撤机设备可补录在役期间内的历史月份，拒绝退场之后与进场之前；未来月份拒绝", async () => {
+    const p = await createP19("IT19-P3", { exitDate: new Date("2026-08-15"), status: "removed" });
+    const jul = await createAdminMeterReading({ printerId: p.id, readingYear: 2026, readingMonth: 7, currentBwReading: 5000, currentColorRaw: "100" });
+    if ("error" in jul) throw new Error(jul.error);
+    const aug = await createAdminMeterReading({ printerId: p.id, readingYear: 2026, readingMonth: 8, currentBwReading: 6000, currentColorRaw: "120" });
+    if ("error" in aug) throw new Error(aug.error); // 退场当月（部分在役）允许
+    expect(expectError(await createAdminMeterReading({ printerId: p.id, readingYear: 2026, readingMonth: 9, currentBwReading: 7000, currentColorRaw: "130" }))).toContain("退场");
+    expect(expectError(await createAdminMeterReading({ printerId: p.id, readingYear: 2026, readingMonth: 5, currentBwReading: 2000, currentColorRaw: "60" }))).toContain("进场");
+
+    const active = await prisma.printer.findFirstOrThrow({ where: { printerCode: "IT19-P2" } });
+    expect(expectError(await createAdminMeterReading({ printerId: active.id, readingYear: 2099, readingMonth: 12, currentBwReading: 9999, currentColorRaw: "" }))).toContain("未来月份");
+  });
+
+  it("手动新增 / 修改后 Settlement 直接读取最新 MeterReading", async () => {
+    const p = await createP19("IT19-P4");
+    const created = await createAdminMeterReading({ printerId: p.id, readingYear: 2026, readingMonth: 6, currentBwReading: 10000, currentColorRaw: "50" });
+    if ("error" in created) throw new Error(created.error);
+    const cPackage = await prisma.customerPackage.findUniqueOrThrow({ where: { id: fx.cPackageId } });
+    const sPackage = await prisma.supplierPackage.findUniqueOrThrow({ where: { id: fx.sPackageId } });
+    const settleLatest = async () => {
+      const reading = await prisma.meterReading.findFirstOrThrow({ where: { printerId: p.id }, orderBy: [{ readingYear: "desc" }, { readingMonth: "desc" }] });
+      const result = computeSettlementOptionalSupplier({
+        year: reading.readingYear, month: reading.readingMonth, entryDate: p.entryDate, exitDate: p.exitDate,
+        bwUsage: reading.bwUsage, colorUsage: reading.colorUsage, bwEquivalentUsage: reading.bwEquivalentUsage,
+        customerPackage: cPackage, supplierPackage: sPackage,
+      });
+      if (!result) throw new Error("结算不应为 null");
+      return result;
+    };
+    // 6 月整月在場：客户侧 450（等价用量 9000 ≤ 免费额度 10000），供应商侧 400，毛利 50
+    const before = await settleLatest();
+    expect(before.customer.monthlyAmount.toString()).toBe("450");
+    expect(before.supplier?.monthlyAmount.toString()).toBe("400");
+    expect(before.operatingGrossProfit?.toString()).toBe("50");
+
+    // 管理员修正读数：用量 9000 → 18000，结算立即反映最新数据
+    const updated = await updateAdminMeterReading({ id: created.reading.id, currentBwReading: 19000, currentColorRaw: "50", adminNote: "修正读数", operator: "测试管理员" });
+    if ("error" in updated) throw new Error(updated.error);
+    const after = await settleLatest();
+    expect(after.bwEquivalentUsage.toString()).toBe("18000");
+    expect(after.customer.monthlyAmount.toString()).toBe("690"); // 450 + 8000 × 0.03
+    expect(after.supplier?.monthlyAmount.toString()).toBe("460"); // 400 + 2000 × 0.03
+    expect(after.operatingGrossProfit?.toString()).toBe("230");
   });
 });
 });

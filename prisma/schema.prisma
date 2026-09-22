@@ -379,7 +379,8 @@ model MeterReading {
   bwUsage              Int      @map("bw_usage")
   colorUsage           Int      @map("color_usage")
   bwEquivalentUsage    Int      @map("bw_equivalent_usage")
-  photoUrl             String   @map("photo_url")
+  // 客户扫码提交必填照片；TASK 19 后台手动补录/编辑允许无照片，故可空。
+  photoUrl             String?  @map("photo_url")
   submittedAt          DateTime @default(now()) @map("submitted_at")
   status               String   @default("submitted") @map("status")
   adminNote            String?  @map("admin_note")
