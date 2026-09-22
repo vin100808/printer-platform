@@ -393,3 +393,28 @@ Migration：`20260919180505_task12_order_evolution`
 - 不做 TASK 18（兼容验证与收尾）。
 
 下一阶段：TASK 18（兼容验证与收尾），建议先人工体验本 TASK 页面。
+
+## TASK 18｜兼容验证与收尾
+
+状态：已完成
+
+完成内容：
+
+- 扩展 `src/lib/integrity.test.ts` 集成测试（+4 用例，均连接真实数据库、跑完自动清理）：
+  - 可空关系 + 押金：无 Location / 客户合同 / 供应商即可建单；depositAmount = Σ明细数量 × 2000 落库；endDate 默认 startDate + 3 年 − 1 天（2026-09-01 → 2029-08-31）；depositReceivedDate 保持 NULL 可后续登记。
+  - 状态：订单置为「已结束」后 Printer 保持运行中、MeterReading 历史条数不变（订单结束不触碰生命周期数据）。
+  - 聚合（monthly）：真实数据链路下逐 Printer 独立计算（385 × 2）→ 订单汇总 770 / 601.34 / 168.66，验证免费额度按 Printer 独立不共享。
+  - 聚合（quarterly）：quarterly 订单两台打印机（一台关联供应商套餐、一台无供应商关联），Q3 自然季度聚合（含 8/20 中途进场按天折算 174.19）→ 订单汇总客户应收 1134.19，缺供应商侧时应付与毛利为 null、客户侧不被阻塞。
+- README 收尾：当前阶段更新为 TASK 18；功能描述按重构后实际状态重写（Order 核心、季度结算、6 项主导航、只读存档模块、106 个测试）；目录结构说明同步。
+- 旧表物理删除评估（TASK 11 §11.7 要求）：**决定不删**。Location / CustomerFrameworkContract / SupplierFrameworkContract / SupplierOrder / SupplierOrderItem / SupplierPackage 全部保留——历史订单与打印机仍引用这些关系（Restrict 外键保护），旧模块页面已收敛为只读存档且历史附件可达；物理删除会破坏历史可追溯性，收益仅为表数量减少，风险远大于收益。建议稳定运行一段时间后（且历史数据完成归档/导出）再议。
+
+验证结果：
+
+- 106 个用例全绿（单元 + 集成）；typecheck / lint / build 全部通过。
+- 无 schema 变更、无 UI 变更（仅测试与文档），无需页面烟测。
+
+范围说明：
+
+- TASK 11 重构路线图的 TASK 12-18 全部完成；刻意未实现项（合同 PDF 自动生成、部分押金 / 分期收款、供应商侧结算深化、旧表物理删除）维持报告结论，如需启动建议单独立项。
+
+下一阶段：重构全部完成，建议整体人工验收 V1 重构后系统。

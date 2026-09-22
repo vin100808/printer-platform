@@ -1,8 +1,9 @@
 import { Prisma } from "@prisma/client";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { computeUsages } from "@/lib/meter";
+import { computeDepositAmount, defaultEndDate } from "@/lib/orders";
 import { newQrToken } from "@/lib/printers";
-import { computeSettlement, computeSettlementOptionalSupplier } from "@/lib/settlement";
+import { aggregateQuarterlySettlement, computeSettlement, computeSettlementOptionalSupplier, summarizeOrderQuarterlySettlements, summarizeOrderSettlements } from "@/lib/settlement";
 import { prisma } from "@/lib/prisma";
 
 // 数据库未运行时（如未启动 Docker）跳过集成测试，保持 npm test 可用。
@@ -280,4 +281,142 @@ describe("最终 V1 验收场景（端到端数据链路）", () => {
     expect((await prisma.printer.findUniqueOrThrow({ where: { id: p6.id } })).status).toBe("removed");
   });
   });
+
+describe("TASK 18 兼容验证（押金 / 状态 / 聚合 / 可空关系）", () => {
+  const it18OrderIds: string[] = [];
+  const it18PrinterIds: string[] = [];
+
+  afterAll(async () => {
+    // 先于外层 afterAll 执行：删自建打印机与订单，避免外键阻塞外层夹具清理
+    await prisma.printer.deleteMany({ where: { id: { in: it18PrinterIds } } });
+    await prisma.customerOrderItem.deleteMany({ where: { customerOrderId: { in: it18OrderIds } } });
+    await prisma.customerOrder.deleteMany({ where: { id: { in: it18OrderIds } } });
+  });
+
+  it("可空关系 + 押金：无 Location / 客户合同 / 供应商即可建单，押金 = Σ数量 × 2000，endDate 默认 +3 年 − 1 天", async () => {
+    const startDate = new Date("2026-09-01T00:00:00.000Z");
+    const order = await prisma.customerOrder.create({
+      data: {
+        orderNo: "IT18-CO-1", customerId: fx.customerId, orderDate: startDate, startDate,
+        endDate: defaultEndDate(startDate), status: "confirmed", billingCycle: "monthly",
+        installationAddress: "无需 Location 的安装地址", depositAmount: computeDepositAmount(2 + 3),
+        items: { create: [{ customerPackageId: fx.cPackageId, quantity: 2 }, { customerPackageId: fx.cPackageId, quantity: 3 }] },
+      },
+    });
+    it18OrderIds.push(order.id);
+    expect(order.locationId).toBeNull();
+    expect(order.customerContractId).toBeNull();
+    expect(order.supplierId).toBeNull();
+    expect(order.depositAmount?.toString()).toBe("10000"); // 5 × 2000
+    expect(order.depositReceivedDate).toBeNull(); // 收款状态未知时保持 NULL
+    expect(order.endDate?.toISOString().slice(0, 10)).toBe("2029-08-31");
+    // 押金收款日期可后续登记
+    await prisma.customerOrder.update({ where: { id: order.id }, data: { depositReceivedDate: new Date("2026-09-10T00:00:00.000Z") } });
+    expect((await prisma.customerOrder.findUniqueOrThrow({ where: { id: order.id } })).depositReceivedDate?.toISOString().slice(0, 10)).toBe("2026-09-10");
+  });
+
+  it("状态：订单结束后 Printer 与 MeterReading 历史零改动", async () => {
+    const order = await prisma.customerOrder.create({
+      data: { orderNo: "IT18-CO-2", customerId: fx.customerId, orderDate: new Date("2026-09-01"), status: "confirmed", items: { create: [{ customerPackageId: fx.cPackageId, quantity: 1 }] } },
+      include: { items: true },
+    });
+    it18OrderIds.push(order.id);
+    const p = await prisma.printer.create({
+      data: { printerCode: "IT18-P1", machineModelId: fx.modelId, customerOrderItemId: order.items[0].id, supplierOrderItemId: fx.sItemId, entryDate: new Date("2026-09-20"), initialBwReading: 0, initialColorReading: 0, status: "active", qrToken: newQrToken() },
+    });
+    it18PrinterIds.push(p.id);
+    await prisma.meterReading.create({
+      data: { printerId: p.id, readingYear: 2026, readingMonth: 9, previousBwReading: 0, currentBwReading: 100, previousColorReading: 0, currentColorReading: 0, bwUsage: 100, colorUsage: 0, bwEquivalentUsage: 100, photoUrl: "/api/files/meter-readings/photos/it18-s.jpg" },
+    });
+    // 结束订单（与 completeCustomerOrder 等价的数据层结果）
+    await prisma.customerOrder.update({ where: { id: order.id }, data: { status: "completed" } });
+    const after = await prisma.customerOrder.findUniqueOrThrow({ where: { id: order.id } });
+    expect(after.status).toBe("completed");
+    const printerAfter = await prisma.printer.findUniqueOrThrow({ where: { id: p.id }, include: { meterReadings: true } });
+    expect(printerAfter.status).toBe("active"); // 打印机生命周期不被订单结束触碰
+    expect(printerAfter.meterReadings).toHaveLength(1);
+  });
+
+  it("聚合（monthly）：逐 Printer 独立计算后求和 = 订单应收 / 应付 / 毛利", async () => {
+    const order = await prisma.customerOrder.create({
+      data: { orderNo: "IT18-CO-3", customerId: fx.customerId, orderDate: new Date("2026-09-01"), status: "confirmed", billingCycle: "monthly", items: { create: [{ customerPackageId: fx.cPackageId, quantity: 2 }] } },
+      include: { items: true },
+    });
+    it18OrderIds.push(order.id);
+    const results = [];
+    for (const code of ["IT18-P2", "IT18-P3"]) {
+      const p = await prisma.printer.create({
+        data: { printerCode: code, machineModelId: fx.modelId, customerOrderItemId: order.items[0].id, supplierOrderItemId: fx.sItemId, entryDate: new Date("2026-09-20"), initialBwReading: 1000, initialColorReading: 50, status: "active", qrToken: newQrToken() },
+      });
+      it18PrinterIds.push(p.id);
+      const reading = await prisma.meterReading.create({
+        data: { printerId: p.id, readingYear: 2026, readingMonth: 9, previousBwReading: 1000, currentBwReading: 9000, previousColorReading: 50, currentColorReading: 350, bwUsage: 8000, colorUsage: 300, bwEquivalentUsage: 11000, photoUrl: `/api/files/meter-readings/photos/${code}.jpg` },
+      });
+      const result = computeSettlementOptionalSupplier({
+        year: 2026, month: 9, entryDate: p.entryDate, exitDate: p.exitDate,
+        bwUsage: reading.bwUsage, colorUsage: reading.colorUsage, bwEquivalentUsage: reading.bwEquivalentUsage,
+        customerPackage: { monthlyRent: "450", monthlyFreeBwEquivalent: "10000", overageRateBwEquivalent: "0.03" },
+        supplierPackage: { monthlyRent: "400", monthlyFreeBwEquivalent: "16000", overageRateBwEquivalent: "0.03" },
+      });
+      if (!result) throw new Error("结算不应为 null");
+      results.push(result);
+    }
+    const summary = summarizeOrderSettlements(results);
+    if (!summary) throw new Error("汇总不应为 null");
+    expect(summary.printerCount).toBe(2);
+    expect(summary.customerAmount.toString()).toBe("770"); // 385 × 2：免费额度按 Printer 独立，不共享
+    expect(summary.supplierAmount?.toString()).toBe("601.34");
+    expect(summary.operatingGrossProfit?.toString()).toBe("168.66");
+  });
+
+  it("聚合（quarterly）：自然季度聚合到订单；缺供应商侧的打印机不阻塞客户侧", async () => {
+    const order = await prisma.customerOrder.create({
+      data: { orderNo: "IT18-CO-4", customerId: fx.customerId, supplierId: fx.supplierId, orderDate: new Date("2026-08-20"), status: "confirmed", billingCycle: "quarterly", items: { create: [{ customerPackageId: fx.cPackageId, quantity: 2 }] } },
+      include: { items: true },
+    });
+    it18OrderIds.push(order.id);
+    const terms = { monthlyRent: "450", monthlyFreeBwEquivalent: "10000", overageRateBwEquivalent: "0.03" };
+    const supplierTerms = { monthlyRent: "400", monthlyFreeBwEquivalent: "16000", overageRateBwEquivalent: "0.03" };
+    // pa：关联供应商套餐，8/20 进场，Q3 有 8 月（3000）与 9 月（11000）两个月抄表
+    const pa = await prisma.printer.create({
+      data: { printerCode: "IT18-P4", machineModelId: fx.modelId, customerOrderItemId: order.items[0].id, supplierOrderItemId: fx.sItemId, entryDate: new Date("2026-08-20"), initialBwReading: 0, initialColorReading: 0, status: "active", qrToken: newQrToken() },
+    });
+    it18PrinterIds.push(pa.id);
+    // pb：无供应商关联（TASK 15 新流程），Q3 仅 9 月（11000）
+    const pb = await prisma.printer.create({
+      data: { printerCode: "IT18-P5", machineModelId: fx.modelId, customerOrderItemId: order.items[0].id, supplierOrderItemId: null, entryDate: new Date("2026-08-20"), initialBwReading: 0, initialColorReading: 0, status: "active", qrToken: newQrToken() },
+    });
+    it18PrinterIds.push(pb.id);
+    const monthlyOf = async (printerId: string, entryDate: Date, month: number, usage: number, withSupplier: boolean) => {
+      const reading = await prisma.meterReading.create({
+        data: { printerId, readingYear: 2026, readingMonth: month, previousBwReading: 0, currentBwReading: usage, previousColorReading: 0, currentColorReading: 0, bwUsage: usage, colorUsage: 0, bwEquivalentUsage: usage, photoUrl: `/api/files/meter-readings/photos/it18-${printerId}-${month}.jpg` },
+      });
+      const result = computeSettlementOptionalSupplier({
+        year: 2026, month, entryDate, exitDate: null,
+        bwUsage: reading.bwUsage, colorUsage: reading.colorUsage, bwEquivalentUsage: reading.bwEquivalentUsage,
+        customerPackage: terms, supplierPackage: withSupplier ? supplierTerms : null,
+      });
+      if (!result) throw new Error("结算不应为 null");
+      return result;
+    };
+    const paQuarter = aggregateQuarterlySettlement([await monthlyOf(pa.id, pa.entryDate, 8, 3000, true), await monthlyOf(pa.id, pa.entryDate, 9, 11000, true)]);
+    const pbQuarter = aggregateQuarterlySettlement([await monthlyOf(pb.id, pb.entryDate, 9, 11000, false)]);
+    if (!paQuarter || !pbQuarter) throw new Error("季度聚合不应为 null");
+    expect(paQuarter.quarter).toBe(3);
+    expect(paQuarter.monthCount).toBe(2);
+    // pa 客户侧：8 月 450×12/31=174.19（按天折算）+ 9 月 480 = 654.19；供应商侧 154.84 + 400 = 554.84
+    expect(paQuarter.customer.monthlyAmount.toString()).toBe("654.19");
+    expect(paQuarter.supplier?.monthlyAmount.toString()).toBe("554.84");
+    expect(pbQuarter.customer.monthlyAmount.toString()).toBe("480");
+    expect(pbQuarter.supplier).toBeNull();
+    const summary = summarizeOrderQuarterlySettlements([paQuarter, pbQuarter]);
+    if (!summary) throw new Error("汇总不应为 null");
+    expect(summary.year).toBe(2026);
+    expect(summary.quarter).toBe(3);
+    expect(summary.printerCount).toBe(2);
+    expect(summary.customerAmount.toString()).toBe("1134.19"); // 654.19 + 480，客户侧不被阻塞
+    expect(summary.supplierAmount).toBeNull(); // pb 缺供应商侧价格 → 应付与毛利不可汇总
+    expect(summary.operatingGrossProfit).toBeNull();
+  });
+});
 });

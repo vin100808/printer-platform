@@ -1,15 +1,17 @@
 # 打印机租赁运营平台 Web V1
 
-当前完成阶段：**TASK 13｜Order 核心业务流与 UI（/orders 新订单流程，业务模型简化重构进行中）**。
+当前完成阶段：**TASK 18｜兼容验证与收尾（业务模型简化重构全部完成）**。
 
-本仓库是一个基于 Next.js、TypeScript、PostgreSQL 和 Prisma 的单体 Web 应用。功能覆盖：管理员登录；客户、供应商、Location、双侧框架合同与附件；机型管理；双侧套餐（含版本历史）；双侧订单（含明细与附件）；Printer 台账（双侧追溯、部署统计、换机撤机生命周期、二维码）；MeterReading 免登录扫码抄表（照片、管理员调整）；基于抄表的月度运营结算（按天折算、应收 / 应付 / 毛利）；工作台运营总览、抄表管理、打印机多条件筛选、客户与供应商详情完整业务视图；数据完整性规则与 V1 验收场景的自动化集成测试（80 个测试）。
+本仓库是一个基于 Next.js、TypeScript、PostgreSQL 和 Prisma 的单体 Web 应用。功能覆盖：管理员登录；以 Order 为核心的业务流（客户 + 供应商 + 安装地址 + 多套餐明细 + 起止日期 + 押金 + 双附件，按月 / 按自然季度结算）；客户、供应商、机型库与套餐（含版本历史）管理；Printer 台账（部署统计、换机撤机生命周期、printerCode 自动生成、二维码）；MeterReading 免登录扫码抄表（照片、管理员调整）；基于抄表的运营结算（按天折算、自然季度聚合、Order 级应收 / 应付 / 毛利汇总，供应商侧价格缺失降级不阻塞客户侧）；工作台运营总览与抄表管理；数据完整性规则与 V1 验收场景的自动化集成测试（106 个测试）。
+
+主导航 6 项：工作台、客户、订单、供应商、套餐、机型库。历史模块（供应商订单、供应商套餐、双侧框架合同）保留只读存档；Location 不再由用户维护，安装地址直接在订单上维护。
 
 ## 技术栈
 
 - Node.js 22 LTS
 - Next.js 16 / React 19 / TypeScript
 - PostgreSQL 17（通过 Docker Compose / OrbStack 运行）
-- MinIO（本地 S3 兼容对象存储，用于合同附件）
+- MinIO（本地 S3 兼容对象存储，用于合同 / 订单附件与抄表照片）
 - Prisma ORM
 - Tailwind CSS
 - Vitest
@@ -97,13 +99,13 @@ npm run db:migrate:deploy
 
 ```text
 src/
-  actions/        服务端操作（登录/退出）
+  actions/        服务端操作（Server Actions：登录、主数据、订单、打印机、抄表等）
   app/            Next.js App Router 页面与 API
   components/     可复用界面组件
-  lib/            数据库、认证等基础设施
+  lib/            数据库、认证、结算、校验等业务与基础设施
 prisma/
   migrations/     数据库 Migration 历史
   schema.prisma   Prisma 数据模型与基础枚举
   seed.ts         初始管理员种子
-docs/             项目需求与开发进度
+docs/             项目需求、重构评估报告与开发进度
 ```
