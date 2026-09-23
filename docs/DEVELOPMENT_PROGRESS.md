@@ -472,3 +472,29 @@ removed / replaced 打印机历史补录：
 - 未改动客户 QR 提交流程与结算算法；未做独立 Dashboard；旧模块只读状态不变。
 
 下一阶段：等待人工验收 TASK 19。
+
+## TASK 20｜提炼打印机运营业务规则与 WorkBuddy Skill 规格
+
+状态：已完成
+
+业务目的：
+
+- 暂停 Web 平台功能开发与部署，改用「企业微信智能表 + WorkBuddy」承载真实业务数据。本 TASK 不开发任何代码，只把 TASK 01–19 已确认并实际实现的业务逻辑提炼为可脱离本项目代码独立使用的业务规格。
+
+产物（3 份文档，均只含业务语言 / 台账设计，不含技术实现）：
+
+- `docs/PRINTING_OPERATIONS_RULES.md`：业务规则总文件。覆盖客户 / 供应商 / 机型库 / 套餐与版本、订单边界与多套餐、新增设备必须新建订单、默认 3 年规则、押金（2,000 元/台）、设备进场与 printerCode 解析、换机 / 撤机、抄表新增 / 编辑 / 补录与前后期读数校验、月结与自然季度结算、免费额度逐机独立、供应商侧缺失降级、历史数据保护、管理员修改权、可空字段、不得猜测项与资料冲突处理。
+- `docs/WORKBUDDY_LEDGER_SCHEMA.md`：8 张智能表（客户 / 供应商 / 套餐 / 机型库 / 订单 / 订单明细 / 设备 / 抄表记录）的字段、关联、自动计算、查重与新增 / 更新规则，以及待收押金 / 待进场 / 在用设备 / 本月待抄 / 已结束订单等推荐视图。旧 Location / FrameworkContract / SupplierOrder 等历史技术模型不进入智能表。
+- `docs/WORKBUDDY_PRINTING_SKILL.md`：WorkBuddy Skill 草案——资料识别、提取、查表、新增 / 更新判断、查重、规则校验、集中询问、写入与汇报的完整流程，以及新建订单 / 更新设备 / 新建或编辑抄表 / 冲突与读数异常的决策边界；规则只引用不复制。
+
+文档规则与当前实现的差异（如实记录，未静默修正）：
+
+- TASK 11 报告 §11.2 计划弃用订单明细 `plannedEntryDate`（进场在 Printer 层），但当前实现中该字段在订单表单仍为必填并保存（`src/lib/orders.ts` orderItemRowSchema）。台账设计已将其列为「可选、可逐步弃用」。
+- TASK 11 报告 §11.5 写 installationAddress 回填为「locationName（address）」，实际迁移只回填 Location.address（TASK 12 已记录）。
+- 原始开发任务文档（TASK 04/05）中「新增设备供应商侧必须存在 SupplierOrder」「printerCode 全局唯一」两条已被 TASK 15 / TASK 12 的人工确认决策取代，属已确认演进，不算不一致。
+
+范围说明：
+
+- 本 TASK 未修改任何业务代码、未做 Migration、未开发新功能。
+
+下一阶段：按 `WORKBUDDY_LEDGER_SCHEMA.md` 搭建企业微信智能表，配置 WorkBuddy Skill 后试运行真实业务数据。
