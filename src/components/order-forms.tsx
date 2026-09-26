@@ -42,7 +42,7 @@ function AttachmentField({ currentUrl, name = "attachment", label }: { currentUr
   return <label className="col-span-full block text-sm font-medium text-slate-700"><span className="mb-2 block">{label ?? "订单附件（PDF、Word、JPG、PNG，最大 10MB）"}</span><input accept=".pdf,.doc,.docx,.jpg,.jpeg,.png" className={input} name={name} type="file" />{currentUrl ? <a className="mt-2 inline-block text-sm font-medium text-blue-700" href={currentUrl} target="_blank">打开当前附件</a> : null}</label>;
 }
 
-export type ItemRowValue = { id?: string; deployed?: number; packageId: string; quantity: string; plannedEntryDate: string; remark: string | null };
+export type ItemRowValue = { id?: string; deployed?: number; packageId: string; quantity: string; remark: string | null };
 
 type Row = { key: number; value?: ItemRowValue };
 
@@ -58,11 +58,10 @@ function ItemRows({ packages, emptyHint, initialRows }: { packages: { id: string
     <div className="mb-2 flex items-center justify-between"><span className="text-sm font-medium text-slate-700">订单明细 *</span><button className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700" onClick={addRow} type="button">+ 添加明细</button></div>
     {rows.map((row) => {
       const locked = (row.value?.deployed ?? 0) > 0;
-      return <div className="mb-3 grid items-end gap-3 rounded-xl border border-slate-200 p-4 md:grid-cols-[2fr_1fr_1fr_2fr_auto]" key={row.key}>
+      return <div className="mb-3 grid items-end gap-3 rounded-xl border border-slate-200 p-4 md:grid-cols-[2fr_1fr_2fr_auto]" key={row.key}>
         {row.value?.id ? <input name="itemId" type="hidden" value={row.value.id} /> : null}
         <label className="block text-sm font-medium text-slate-700"><span className="mb-2 block">套餐 *</span>{locked ? <input name="itemPackageId" type="hidden" value={row.value?.packageId ?? ""} /> : null}<select className={input} defaultValue={row.value?.packageId ?? ""} disabled={locked} name="itemPackageId" required title={locked ? "该明细下已有打印机记录，不能更换套餐" : undefined}><option value="">请选择</option>{packages.map((pkg) => <option key={pkg.id} value={pkg.id}>{pkg.label}</option>)}</select></label>
         <Field defaultValue={row.value?.quantity ?? ""} label={locked ? `数量（已部署 ${row.value?.deployed} 台）` : "数量"} name="itemQuantity" required step="1" type="number" />
-        <Field defaultValue={row.value?.plannedEntryDate ?? ""} label="计划进场日期" name="itemPlannedEntryDate" required type="date" />
         <Field defaultValue={row.value?.remark ?? ""} label="备注" name="itemRemark" />
         <button className="rounded-lg px-3 py-2 text-sm font-semibold text-red-700 disabled:text-slate-300" disabled={rows.length <= 1} onClick={() => removeRow(row.key)} type="button">删除</button>
       </div>;
@@ -106,7 +105,6 @@ export function CustomerOrderForm({ action, parties, suppliers, packages, cancel
     <label className="col-span-full block text-sm font-medium text-slate-700"><span className="mb-2 block">安装地址 *</span><input className={input} name="installationAddress" placeholder="打印机实际安装/交付地址" required /></label>
     <DateRangeFields />
     <BillingCycleSelect />
-    <OrderStatusSelect />
     <ItemRows emptyHint="暂无可选套餐，请先到「客户套餐」新增。" packages={availablePackages.map((pkg) => ({ id: pkg.id, label: pkg.label }))} />
     <AttachmentField label="合同文件（PDF、Word、JPG、PNG，最大 10MB；与订单附件同文件时只传本项即可）" name="contractAttachment" />
     <AttachmentField />
@@ -161,7 +159,7 @@ export function CustomerOrderEditForm({ action, value, packages, initialRows, de
     <label className="col-span-full block text-sm font-medium text-slate-700"><span className="mb-2 block">安装地址 *</span><input className={input} defaultValue={value.installationAddress} name="installationAddress" placeholder="打印机实际安装/交付地址" required /></label>
     <DateRangeFields endDefault={value.endDate} startDefault={value.startDate} />
     <BillingCycleSelect defaultValue={value.billingCycle} />
-    <Field defaultValue={value.orderDate} label="下单日期" name="orderDate" required type="date" /><OrderStatusSelect defaultValue={value.status} />
+    <Field defaultValue={value.orderDate} label="下单日期" name="orderDate" required type="date" />
     <ItemRows emptyHint="暂无可选套餐，请先到「客户套餐」新增。" initialRows={initialRows} packages={packages} />
     <AttachmentField currentUrl={value.contractAttachmentUrl} label="合同文件（重新上传即替换，历史文件将被删除）" name="contractAttachment" />
     <AttachmentField currentUrl={value.attachmentUrl} />

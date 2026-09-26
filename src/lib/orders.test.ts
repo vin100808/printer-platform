@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { customerOrderSchema, computeDepositAmount, defaultEndDate, deploymentStatus, nextOrderNo, parseOrderItems, supplierOrderSchema } from "./orders";
+import { customerOrderCreateSchema, customerOrderSchema, computeDepositAmount, defaultEndDate, deploymentStatus, nextOrderNo, orderUpdateSchema, parseOrderItems, supplierOrderSchema } from "./orders";
 
 function formDataOf(entries: Record<string, string[]>) {
   const formData = new FormData();
@@ -93,10 +93,27 @@ describe("TASK 04 order validation", () => {
     if (legacy.ok) expect(legacy.items[0].itemId).toBeUndefined();
   });
 
-  it("requires a planned entry date on every filled item row", () => {
+  it("does not require a planned entry date on item rows", () => {
+    // TASK 21A：计划进场日期退出日常维护，普通流程存 null。
     const missing = parseOrderItems(formDataOf({ itemPackageId: ["p1"], itemQuantity: ["1"], itemPlannedEntryDate: [""] }));
-    expect(missing.ok).toBe(false);
-    if (!missing.ok) expect(missing.error).toContain("计划进场日期");
+    expect(missing.ok).toBe(true);
+    if (missing.ok) expect(missing.items[0].plannedEntryDate).toBeNull();
+
+    const omitted = parseOrderItems(formDataOf({ itemPackageId: ["p1"], itemQuantity: ["1"] }));
+    expect(omitted.ok).toBe(true);
+    if (omitted.ok) expect(omitted.items[0].plannedEntryDate).toBeNull();
+  });
+
+  it("new-order schema ignores status and update schema omits it", () => {
+    // TASK 21A：新建订单不接受表单状态（服务端强制 confirmed）；编辑不通过表单改状态。
+    const base = { customerId: "c1", supplierId: "s1", installationAddress: "上海市浦东新区张江高科技园区", startDate: "2026-10-01", orderDate: "2026-09-16", billingCycle: "monthly", remark: "" };
+    const created = customerOrderCreateSchema.safeParse(base);
+    expect(created.success).toBe(true);
+    if (created.success) expect(created.data).not.toHaveProperty("status");
+
+    const updated = orderUpdateSchema.safeParse({ ...base, status: "cancelled" });
+    expect(updated.success).toBe(true);
+    if (updated.success) expect(updated.data).not.toHaveProperty("status");
   });
 
   it("rejects orders without any item and rows with invalid quantity", () => {

@@ -18,7 +18,8 @@ import { prisma } from "@/lib/prisma";
 
 export type FormState = { error?: string };
 
-const customerKeys = ["customerName", "customerType", "taxpayerIdentificationNo", "registeredAddress", "bankName", "bankAccountName", "bankAccountNo", "contactName", "contactPhone", "status", "remark"];
+// Customer 无业务状态：表单不提交 status，新建固定为 active，编辑不改动既有值。
+const customerKeys = ["customerName", "customerType", "taxpayerIdentificationNo", "registeredAddress", "bankName", "bankAccountName", "bankAccountNo", "contactName", "contactPhone", "remark"];
 const supplierKeys = ["supplierName", "taxpayerIdentificationNo", "registeredAddress", "bankName", "bankAccountName", "bankAccountNo", "contactName", "contactPhone", "serviceArea", "status", "remark"];
 const locationKeys = ["locationCode", "locationName", "address", "contactName", "contactPhone", "status", "remark"];
 const contractKeys = ["contractNo", "contractName", "effectiveDate", "expiryDate", "status", "remark"];
@@ -56,7 +57,7 @@ export async function createCustomer(_: FormState, formData: FormData): Promise<
   if (!parsed.success) return { error: firstError(parsed.error) };
   for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
-      const item = await prisma.customer.create({ data: { ...parsed.data, customerCode: await nextCustomerCode() } });
+      const item = await prisma.customer.create({ data: { ...parsed.data, status: "active", customerCode: await nextCustomerCode() } });
       revalidatePath("/customers");
       redirect(`/customers/${item.id}`);
     } catch (error) {

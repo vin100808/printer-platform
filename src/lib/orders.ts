@@ -38,8 +38,11 @@ export const customerOrderSchema = z
   })
   .refine((data) => !data.endDate || data.endDate >= data.startDate, { error: "结束日期不能早于开始日期", path: ["endDate"] });
 
-// 编辑时客户不可修改，其余表头字段管理员可改。
-export const orderUpdateSchema = customerOrderSchema.omit({ customerId: true });
+// 编辑时客户不可修改，其余表头字段管理员可改；状态是生命周期，不通过普通编辑表单修改。
+export const orderUpdateSchema = customerOrderSchema.omit({ customerId: true, status: true });
+
+// 新建订单不接受表单状态：Server Action 强制新订单为 confirmed（履约中）。
+export const customerOrderCreateSchema = customerOrderSchema.omit({ status: true });
 
 export const supplierOrderSchema = z.object({
   supplierId: requiredId("供应商"),
@@ -75,9 +78,10 @@ const orderItemRowSchema = z.object({
     .int("数量必须是整数")
     .min(1, "数量至少为 1")
     .max(999, "数量不能超过 999"),
+  // plannedEntryDate 已退出日常维护：普通流程不再填写，存 null；字段保留用于兼容历史数据。
   plannedEntryDate: z.preprocess(
-    (value) => (typeof value === "string" && value ? value : undefined),
-    z.coerce.date({ error: "请选择计划进场日期" }),
+    (value) => (typeof value === "string" && value ? value : null),
+    z.coerce.date({ error: "计划进场日期格式不正确" }).nullable(),
   ),
   remark: optionalText,
 });

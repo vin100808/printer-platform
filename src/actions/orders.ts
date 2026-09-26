@@ -8,7 +8,7 @@ import { requireAdmin } from "@/lib/auth";
 import { deleteAttachment, uploadContractAttachment, uploadOrderAttachment } from "@/lib/object-storage";
 import {
   computeDepositAmount,
-  customerOrderSchema,
+  customerOrderCreateSchema,
   defaultEndDate,
   firstError,
   nextOrderNo,
@@ -19,9 +19,11 @@ import {
 } from "@/lib/orders";
 import { prisma } from "@/lib/prisma";
 
-const customerOrderKeys = ["customerId", "supplierId", "installationAddress", "startDate", "endDate", "billingCycle", "orderDate", "status", "depositReceivedDate", "remark"];
+// 新建/编辑订单均不接受表单提交的 status：新建强制 confirmed，编辑保持既有状态（生命周期由专门 Action 管理）。
+const customerOrderKeys = ["customerId", "supplierId", "installationAddress", "startDate", "endDate", "billingCycle", "orderDate", "depositReceivedDate", "remark"];
 const supplierOrderKeys = ["supplierId", "supplierContractId", "orderDate", "status", "remark"];
-const orderUpdateKeys = ["supplierId", "installationAddress", "startDate", "endDate", "billingCycle", "orderDate", "status", "depositReceivedDate", "remark"];
+const orderUpdateKeys = ["supplierId", "installationAddress", "startDate", "endDate", "billingCycle", "orderDate", "depositReceivedDate", "remark"];
+const supplierOrderUpdateKeys = ["orderDate", "status", "remark"];
 
 function isRedirect(error: unknown) {
   return (error as { digest?: string }).digest?.startsWith("NEXT_REDIRECT") ?? false;
@@ -91,7 +93,7 @@ export async function createCustomerOrder(_: FormState, formData: FormData): Pro
   const today = new Date();
   const raw = values(formData, customerOrderKeys);
   raw.orderDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
-  const parsed = customerOrderSchema.safeParse(raw);
+  const parsed = customerOrderCreateSchema.safeParse(raw);
   if (!parsed.success) return { error: firstError(parsed.error) };
   const items = parseOrderItems(formData);
   if (!items.ok) return { error: items.error };
@@ -125,7 +127,8 @@ export async function createCustomerOrder(_: FormState, formData: FormData): Pro
           endDate: parsed.data.endDate ?? defaultEndDate(parsed.data.startDate),
           billingCycle: parsed.data.billingCycle,
           orderDate: today,
-          status: parsed.data.status,
+          // 新订单创建即履约中，不接受表单状态。
+          status: "confirmed",
           depositReceivedDate: parsed.data.depositReceivedDate,
           remark: parsed.data.remark,
           depositAmount: computeDepositAmount(items.items.reduce((sum, entry) => sum + entry.quantity, 0)),
@@ -216,7 +219,6 @@ export async function updateCustomerOrder(id: string, _: FormState, formData: Fo
           endDate: parsed.data.endDate ?? defaultEndDate(parsed.data.startDate),
           billingCycle: parsed.data.billingCycle,
           orderDate: parsed.data.orderDate,
-          status: parsed.data.status,
           depositReceivedDate: parsed.data.depositReceivedDate,
           remark: parsed.data.remark,
           depositAmount: computeDepositAmount(totalQuantity),
@@ -334,7 +336,7 @@ export async function createSupplierOrder(_: FormState, formData: FormData): Pro
 
 export async function updateSupplierOrder(id: string, _: FormState, formData: FormData): Promise<FormState> {
   await requireAdmin();
-  const parsed = supplierOrderSchema.pick({ orderDate: true, status: true, remark: true }).safeParse(values(formData, orderUpdateKeys));
+  const parsed = supplierOrderSchema.pick({ orderDate: true, status: true, remark: true }).safeParse(values(formData, supplierOrderUpdateKeys));
   if (!parsed.success) return { error: firstError(parsed.error) };
   const items = parseOrderItems(formData);
   if (!items.ok) return { error: items.error };

@@ -24,7 +24,8 @@ export const customerSchema = z.object({
 });
 
 // 新增/编辑客户表单不携带 customerCode：新增时由服务端自动生成，编辑时编码不可修改。
-export const customerInputSchema = customerSchema.omit({ customerCode: true });
+// Customer 不再有业务状态：status 不出现在表单中，新建固定为 active，编辑不改动既有值。
+export const customerInputSchema = customerSchema.omit({ customerCode: true, status: true });
 
 export const supplierSchema = z.object({
   supplierCode: requiredText("供应商编码", 50),

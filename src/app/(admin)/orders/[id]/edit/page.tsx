@@ -39,7 +39,6 @@ export default async function EditCustomerOrderPage({ params }: PageProps<"/orde
     deployed: deployedByItem[item.id] ?? 0,
     packageId: item.customerPackageId,
     quantity: String(item.quantity),
-    plannedEntryDate: formatDateInput(item.plannedEntryDate),
     remark: item.remark,
   }));
   return <div className="mx-auto max-w-5xl"><PageHeader description="客户不可修改；已部署设备的明细行不能更换套餐或删除，调低数量需确认风险提示。" title={`编辑订单 · ${order.orderNo}`} />
