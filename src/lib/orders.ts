@@ -1,4 +1,6 @@
 import { z } from "zod";
+import type { Prisma } from "@prisma/client";
+import { isBeforeDay } from "@/lib/printers";
 
 const optionalText = z.preprocess(
   (value) => (typeof value === "string" && value.trim() ? value.trim() : null),
@@ -150,6 +152,50 @@ export const billingCycleLabel: Record<"monthly" | "quarterly", string> = {
   monthly: "按月结算",
   quarterly: "按自然季度结算",
 };
+
+// 结束订单：统一退场日期。表单默认今天，用户可修改；同事务批量撤机共用此日期。
+export const orderCompleteSchema = z.object({
+  exitDate: z.preprocess(
+    (value) => (typeof value === "string" && value ? value : undefined),
+    z.coerce.date({ error: "请选择订单结束/统一退场日期" }),
+  ),
+});
+
+/**
+ * 校验统一退场日期不得早于任何运行中打印机的进场日期。
+ * 返回进场日期最早的冲突打印机；无冲突返回 null。非法时整个事务失败，不允许部分撤机。
+ */
+export function findBatchExitConflict<T extends { entryDate: Date }>(exitDate: Date, printers: T[]): T | null {
+  let conflict: T | null = null;
+  for (const printer of printers) {
+    if (isBeforeDay(exitDate, printer.entryDate) && (!conflict || isBeforeDay(printer.entryDate, conflict.entryDate))) conflict = printer;
+  }
+  return conflict;
+}
+
+/**
+ * 结束订单的事务体：订单 → completed + endDate=统一退场日期；所有 active Printer → removed + 同一 exitDate。
+ * replaced / removed 的历史 Printer、MeterReading、附件全部保留不动。
+ * 日期非法时抛错，由外层 prisma.$transaction 整体回滚，不允许部分撤机。返回统一撤机台数。
+ */
+export async function completeOrderWithBatchExit(tx: Prisma.TransactionClient, orderId: string, exitDate: Date) {
+  const activePrinters = await tx.printer.findMany({
+    where: { customerOrderItem: { customerOrderId: orderId }, status: "active" },
+    select: { id: true, printerCode: true, entryDate: true },
+  });
+  const conflict = findBatchExitConflict(exitDate, activePrinters);
+  if (conflict) {
+    throw new Error(`统一退场日期不能早于运行中打印机「${conflict.printerCode}」的进场日期（${conflict.entryDate.toLocaleDateString("zh-CN")}）。`);
+  }
+  if (activePrinters.length) {
+    await tx.printer.updateMany({
+      where: { id: { in: activePrinters.map((printer) => printer.id) } },
+      data: { status: "removed", exitDate },
+    });
+  }
+  await tx.customerOrder.update({ where: { id: orderId }, data: { status: "completed", endDate: exitDate } });
+  return { removedCount: activePrinters.length };
+}
 
 export function firstError(error: z.ZodError) {
   return error.issues[0]?.message ?? "提交内容不正确";

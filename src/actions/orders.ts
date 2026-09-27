@@ -7,11 +7,13 @@ import type { FormState } from "@/actions/master-data";
 import { requireAdmin } from "@/lib/auth";
 import { deleteAttachment, uploadContractAttachment, uploadOrderAttachment } from "@/lib/object-storage";
 import {
+  completeOrderWithBatchExit,
   computeDepositAmount,
   customerOrderCreateSchema,
   defaultEndDate,
   firstError,
   nextOrderNo,
+  orderCompleteSchema,
   orderUpdateSchema,
   parseOrderItems,
   supplierOrderSchema,
@@ -269,18 +271,28 @@ export async function deleteCustomerOrder(id: string) {
   redirect("/orders");
 }
 
-// 结束订单：只把订单状态改为「已结束」，不触碰 Printer / MeterReading / 附件 / 任何历史数据。
-// 仍有运行中打印机时由前端弹风险提示，管理员确认后继续（管理员保留最终操作权）。
-export async function completeCustomerOrder(id: string) {
+// 结束订单 = 所有运行中的打印机按统一退场日期批量撤机，与订单状态变更在同一事务中完成。
+// replaced / removed 的历史打印机、MeterReading、附件、历史结算数据全部保留不动。
+// 统一退场日期早于任何运行中打印机进场日期时整个事务失败，不允许部分机器成功。
+export async function completeCustomerOrder(id: string, formData: FormData) {
   await requireAdmin();
+  const parsed = orderCompleteSchema.safeParse(values(formData, ["exitDate"]));
+  if (!parsed.success) redirect(`/orders/${id}?error=${encodeURIComponent(firstError(parsed.error))}`);
   const order = await prisma.customerOrder.findUnique({ where: { id }, select: { status: true } });
   if (!order) redirect("/orders");
   if (order.status === "cancelled") redirect(`/orders/${id}?error=${encodeURIComponent("已取消的订单不能改为已结束。")}`);
-  if (order.status !== "completed") {
-    await prisma.customerOrder.update({ where: { id }, data: { status: "completed" } });
+  if (order.status === "completed") redirect(`/orders/${id}?error=${encodeURIComponent("该订单已结束，不能重复操作。")}`);
+  const exitDate = parsed.data.exitDate;
+  let errorMessage: string | null = null;
+  try {
+    await prisma.$transaction((tx) => completeOrderWithBatchExit(tx, id, exitDate));
+  } catch (error) {
+    errorMessage = error instanceof Error && error.message.startsWith("统一退场日期") ? error.message : "操作失败，请稍后重试。";
   }
+  if (errorMessage) redirect(`/orders/${id}?error=${encodeURIComponent(errorMessage)}`);
   revalidatePath("/orders");
   revalidatePath(`/orders/${id}`);
+  revalidatePath("/printers");
   redirect(`/orders/${id}?completed=1`);
 }
 

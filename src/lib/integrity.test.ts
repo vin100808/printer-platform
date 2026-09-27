@@ -2,7 +2,7 @@ import { Prisma } from "@prisma/client";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { computeUsages } from "@/lib/meter";
 import { createAdminMeterReading, updateAdminMeterReading } from "@/lib/meter-admin";
-import { computeDepositAmount, defaultEndDate } from "@/lib/orders";
+import { completeOrderWithBatchExit, computeDepositAmount, defaultEndDate } from "@/lib/orders";
 import { newQrToken } from "@/lib/printers";
 import { aggregateQuarterlySettlement, computeSettlement, computeSettlementOptionalSupplier, summarizeOrderQuarterlySettlements, summarizeOrderSettlements } from "@/lib/settlement";
 import { prisma } from "@/lib/prisma";
@@ -316,26 +316,64 @@ describe("TASK 18 兼容验证（押金 / 状态 / 聚合 / 可空关系）", ()
     expect((await prisma.customerOrder.findUniqueOrThrow({ where: { id: order.id } })).depositReceivedDate?.toISOString().slice(0, 10)).toBe("2026-09-10");
   });
 
-  it("状态：订单结束后 Printer 与 MeterReading 历史零改动", async () => {
+  it("状态：结束订单 = 统一退场日期批量撤机，历史打印机与 MeterReading 保留", async () => {
     const order = await prisma.customerOrder.create({
-      data: { orderNo: "IT18-CO-2", customerId: fx.customerId, orderDate: new Date("2026-09-01"), status: "confirmed", items: { create: [{ customerPackageId: fx.cPackageId, quantity: 1 }] } },
+      data: { orderNo: "IT18-CO-2", customerId: fx.customerId, orderDate: new Date("2026-09-01"), status: "confirmed", items: { create: [{ customerPackageId: fx.cPackageId, quantity: 3 }] } },
       include: { items: true },
     });
     it18OrderIds.push(order.id);
-    const p = await prisma.printer.create({
-      data: { printerCode: "IT18-P1", machineModelId: fx.modelId, customerOrderItemId: order.items[0].id, supplierOrderItemId: fx.sItemId, entryDate: new Date("2026-09-20"), initialBwReading: 0, initialColorReading: 0, status: "active", qrToken: newQrToken() },
-    });
-    it18PrinterIds.push(p.id);
+    const itemId = order.items[0].id;
+    const mk = (code: string, entry: string, status: "active" | "replaced", exit: string | null) =>
+      prisma.printer.create({
+        data: { printerCode: code, machineModelId: fx.modelId, customerOrderItemId: itemId, entryDate: new Date(entry), exitDate: exit ? new Date(exit) : null, initialBwReading: 0, initialColorReading: 0, status, qrToken: newQrToken() },
+      });
+    const p1 = await mk("IT18-P1A", "2026-09-20", "active", null);
+    const p2 = await mk("IT18-P1B", "2026-10-05", "active", null);
+    const pOld = await mk("IT18-P1C", "2026-09-01", "replaced", "2026-10-01");
+    it18PrinterIds.push(p1.id, p2.id, pOld.id);
     await prisma.meterReading.create({
-      data: { printerId: p.id, readingYear: 2026, readingMonth: 9, previousBwReading: 0, currentBwReading: 100, previousColorReading: 0, currentColorReading: 0, bwUsage: 100, colorUsage: 0, bwEquivalentUsage: 100, photoUrl: "/api/files/meter-readings/photos/it18-s.jpg" },
+      data: { printerId: p1.id, readingYear: 2026, readingMonth: 9, previousBwReading: 0, currentBwReading: 100, previousColorReading: 0, currentColorReading: 0, bwUsage: 100, colorUsage: 0, bwEquivalentUsage: 100, photoUrl: "/api/files/meter-readings/photos/it18-s.jpg" },
     });
-    // 结束订单（与 completeCustomerOrder 等价的数据层结果）
-    await prisma.customerOrder.update({ where: { id: order.id }, data: { status: "completed" } });
+    const exitDate = new Date("2026-10-31");
+    const result = await prisma.$transaction((tx) => completeOrderWithBatchExit(tx, order.id, exitDate));
+    expect(result.removedCount).toBe(2);
     const after = await prisma.customerOrder.findUniqueOrThrow({ where: { id: order.id } });
     expect(after.status).toBe("completed");
-    const printerAfter = await prisma.printer.findUniqueOrThrow({ where: { id: p.id }, include: { meterReadings: true } });
-    expect(printerAfter.status).toBe("active"); // 打印机生命周期不被订单结束触碰
-    expect(printerAfter.meterReadings).toHaveLength(1);
+    expect(after.endDate?.toISOString().slice(0, 10)).toBe("2026-10-31");
+    for (const id of [p1.id, p2.id]) {
+      const printer = await prisma.printer.findUniqueOrThrow({ where: { id }, include: { meterReadings: true } });
+      expect(printer.status).toBe("removed");
+      expect(printer.exitDate?.toISOString().slice(0, 10)).toBe("2026-10-31");
+    }
+    // 已换机的历史打印机不被批量撤机触碰
+    const oldAfter = await prisma.printer.findUniqueOrThrow({ where: { id: pOld.id } });
+    expect(oldAfter.status).toBe("replaced");
+    expect(oldAfter.exitDate?.toISOString().slice(0, 10)).toBe("2026-10-01");
+    // MeterReading 全部保留
+    expect((await prisma.printer.findUniqueOrThrow({ where: { id: p1.id }, include: { meterReadings: true } })).meterReadings).toHaveLength(1);
+  });
+
+  it("状态：统一退场日期早于运行中打印机进场日期 → 整个事务回滚", async () => {
+    const order = await prisma.customerOrder.create({
+      data: { orderNo: "IT18-CO-2B", customerId: fx.customerId, orderDate: new Date("2026-09-01"), status: "confirmed", items: { create: [{ customerPackageId: fx.cPackageId, quantity: 2 }] } },
+      include: { items: true },
+    });
+    it18OrderIds.push(order.id);
+    const mk = (code: string, entry: string) =>
+      prisma.printer.create({
+        data: { printerCode: code, machineModelId: fx.modelId, customerOrderItemId: order.items[0].id, entryDate: new Date(entry), initialBwReading: 0, initialColorReading: 0, status: "active", qrToken: newQrToken() },
+      });
+    const p1 = await mk("IT18-P2A", "2026-09-20");
+    const p2 = await mk("IT18-P2B", "2026-10-10"); // 退场日期早于此机进场日期 → 非法
+    it18PrinterIds.push(p1.id, p2.id);
+    await expect(prisma.$transaction((tx) => completeOrderWithBatchExit(tx, order.id, new Date("2026-10-01")))).rejects.toThrow("统一退场日期");
+    // 事务整体回滚：订单与两台打印机均保持原状，不允许部分撤机
+    expect((await prisma.customerOrder.findUniqueOrThrow({ where: { id: order.id } })).status).toBe("confirmed");
+    for (const id of [p1.id, p2.id]) {
+      const printer = await prisma.printer.findUniqueOrThrow({ where: { id } });
+      expect(printer.status).toBe("active");
+      expect(printer.exitDate).toBeNull();
+    }
   });
 
   it("聚合（monthly）：逐 Printer 独立计算后求和 = 订单应收 / 应付 / 毛利", async () => {

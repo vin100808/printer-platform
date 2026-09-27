@@ -11,7 +11,8 @@ export default async function NewPrinterPage({ searchParams }: { searchParams: P
   const { customerOrderItemId, supplierOrderItemId } = await searchParams;
   const [customerItems, machineModels] = await Promise.all([
     prisma.customerOrderItem.findMany({
-      where: { order: { status: { not: "cancelled" } } },
+      // 已结束 / 已取消的订单禁止部署新打印机（后端 verifyPrinterRefs 同步硬校验）。
+      where: { order: { status: { in: ["draft", "confirmed"] } } },
       include: {
         customerPackage: { select: { packageName: true, version: true } },
         order: { select: { orderNo: true, customer: { select: { customerName: true } }, location: { select: { locationName: true } } } },

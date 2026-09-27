@@ -63,7 +63,9 @@ async function verifyPrinterRefs(input: { machineModelId: string; customerOrderI
   if (!customerItem) return "所选客户订单明细不存在，请重新选择。";
   if (input.supplierOrderItemId && !supplierItem) return "所选供应商订单明细不存在，请重新选择。";
   if (customerItem.order.status === "cancelled") return "所选客户订单已取消，不能部署打印机。";
+  if (customerItem.order.status === "completed") return "所选客户订单已结束，不能部署打印机。";
   if (supplierItem?.order.status === "cancelled") return "所选供应商订单已取消，不能部署打印机。";
+  if (supplierItem?.order.status === "completed") return "所选供应商订单已结束，不能部署打印机。";
   if (customerItem.printers.length >= customerItem.quantity) return "所选客户订单明细已部署满，不能继续新增打印机。";
   if (supplierItem && supplierItem.printers.length >= supplierItem.quantity) return "所选供应商订单明细已交付满，不能继续新增打印机。";
   return null;
@@ -123,10 +125,21 @@ export async function replacePrinter(oldId: string, _: FormState, formData: Form
   if (!parsed.success) return { error: firstError(parsed.error) };
   const old = await prisma.printer.findUnique({
     where: { id: oldId },
-    select: { id: true, status: true, entryDate: true, customerOrderItemId: true, supplierOrderItemId: true },
+    select: {
+      id: true,
+      status: true,
+      entryDate: true,
+      customerOrderItemId: true,
+      supplierOrderItemId: true,
+      customerOrderItem: { select: { order: { select: { status: true } } } },
+    },
   });
   if (!old) return { error: "原打印机不存在。" };
   if (!canChangeLifecycle(old.status)) return { error: "只有运行中的打印机可以换机。" };
+  // 换机会在同一客户订单明细下创建新打印机，已结束 / 已取消订单同样禁止（与新增打印机同一规则）。
+  if (old.customerOrderItem.order.status === "completed" || old.customerOrderItem.order.status === "cancelled") {
+    return { error: "所属客户订单已结束或已取消，不能换机部署新打印机。" };
+  }
   if (isBeforeDay(parsed.data.replaceDate, old.entryDate)) return { error: "换机日期不能早于原打印机进场日期。" };
   const supplierOrderItemId = parsed.data.supplierOrderItemId ?? old.supplierOrderItemId;
   const [machineModel, supplierItem] = await Promise.all([
@@ -141,7 +154,7 @@ export async function replacePrinter(oldId: string, _: FormState, formData: Form
   ]);
   if (!machineModel) return { error: "所选机型不存在，请重新选择。" };
   if (supplierOrderItemId && !supplierItem) return { error: "所选供应商订单明细不存在，请重新选择。" };
-  if (supplierItem?.order.status === "cancelled") return { error: "所选供应商订单已取消，不能用于换机。" };
+  if (supplierItem?.order.status === "cancelled" || supplierItem?.order.status === "completed") return { error: "所选供应商订单已取消或已结束，不能用于换机。" };
   if (supplierItem && supplierItem.printers.length >= supplierItem.quantity) return { error: "所选供应商订单明细已交付满，不能用于换机。" };
   const resolved = await resolveNewPrinterCode(parsed.data);
   if ("error" in resolved) return { error: resolved.error };

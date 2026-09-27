@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { customerOrderCreateSchema, customerOrderSchema, computeDepositAmount, defaultEndDate, deploymentStatus, nextOrderNo, orderUpdateSchema, parseOrderItems, supplierOrderSchema } from "./orders";
+import { customerOrderCreateSchema, customerOrderSchema, computeDepositAmount, defaultEndDate, deploymentStatus, findBatchExitConflict, nextOrderNo, orderCompleteSchema, orderUpdateSchema, parseOrderItems, supplierOrderSchema } from "./orders";
 
 function formDataOf(entries: Record<string, string[]>) {
   const formData = new FormData();
@@ -148,5 +148,23 @@ describe("TASK 04 order validation", () => {
     expect(defaultEndDate(new Date(Date.UTC(2026, 0, 1)))).toEqual(new Date(Date.UTC(2029, 0, 0)));
     // 闰日起点不崩溃
     expect(defaultEndDate(new Date(Date.UTC(2028, 1, 29)))).toEqual(new Date(Date.UTC(2031, 1, 28)));
+  });
+
+  it("orderCompleteSchema requires a unified exit date", () => {
+    // TASK 21B：结束订单必须提交订单结束/统一退场日期。
+    expect(orderCompleteSchema.safeParse({ exitDate: "2026-10-31" }).success).toBe(true);
+    const missing = orderCompleteSchema.safeParse({ exitDate: "" });
+    expect(missing.success).toBe(false);
+  });
+
+  it("findBatchExitConflict rejects dates earlier than any active printer entry", () => {
+    const printers = [{ id: "p1", entryDate: new Date(2026, 8, 20) }, { id: "p2", entryDate: new Date(2026, 9, 10) }];
+    // 退场日期早于 p2 进场 → 冲突，返回进场最早的冲突机
+    expect(findBatchExitConflict(new Date(2026, 9, 1), printers)?.id).toBe("p2");
+    expect(findBatchExitConflict(new Date(2026, 8, 1), printers)?.id).toBe("p1");
+    // 与最晚进场同日或不晚于所有进场日期 → 合法
+    expect(findBatchExitConflict(new Date(2026, 9, 10), printers)).toBeNull();
+    expect(findBatchExitConflict(new Date(2026, 9, 31), printers)).toBeNull();
+    expect(findBatchExitConflict(new Date(2026, 9, 1), [])).toBeNull();
   });
 });
